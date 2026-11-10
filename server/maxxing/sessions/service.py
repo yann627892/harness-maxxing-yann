@@ -1034,11 +1034,13 @@ _models_cache: tuple[float, list[dict]] = (0.0, [])
 
 
 def _label(mid: str) -> str:
+    if "/" in mid:                               # a gateway id ("anthropic/claude-opus-5.5", "gpt-6-luna")
+        mid = mid.rsplit("/", 1)[-1]
     parts = mid.split("-")[1:]
     if not parts:
         return mid
     fam = parts[0].capitalize()
-    nums = [p for p in parts[1:] if p.isdigit() and len(p) < 4]
+    nums = [p for p in parts[1:] if re.fullmatch(r"\d+(?:\.\d+)?", p) and len(p) < 8]
     return f"{fam} {'.'.join(nums)}".strip()
 
 
@@ -1051,12 +1053,20 @@ def forget_models_cache() -> None:
 
 
 def models() -> list[dict]:
-    """The newest model of each family (claude_models, read from Anthropic once a day) + ids seen in session logs
-    (cached 60 s; each pass reads only what was appended)."""
+    """The newest model of each family (claude_models, read from Anthropic once a day) + ids seen in session
+    logs (cached 60 s; each pass reads only what was appended). A connected gateway (maxxing.gateway)
+    puts its ids first, instead of the Anthropic ones."""
     global _models_cache
     if time.time() - _models_cache[0] < 60:
         return _models_cache[1]
     seen = set(claude_models.latest())
+    try:
+        from .. import gateway
+        gw = gateway.configured()
+        if gw:                                    # gateway ids replace the Anthropic built-ins
+            seen = set(gateway.model_ids(gw))
+    except ImportError:
+        pass
     windows: dict = {}
     for sid in store.list_ids():
         try:

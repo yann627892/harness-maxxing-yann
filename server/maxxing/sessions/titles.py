@@ -21,6 +21,16 @@ from . import spawn, store
 log = logging.getLogger("maxxing.titles")
 
 MODEL = "haiku"                         # Claude Code's name for its newest Haiku (the cheapest family)
+
+
+def _model() -> str:
+    """The title model: the connected gateway's cheap id, else Claude Code's cheapest family."""
+    try:
+        from .. import gateway
+        return gateway.small_model("haiku")
+    except ImportError:
+        return MODEL
+
 TIMEOUT_S = 30
 MESSAGE_CHARS = 1000                    # only the start of the message is sent
 MAX_CHARS = 60                          # a model answer longer than this is not a title
@@ -103,7 +113,7 @@ def clean(answer: str) -> str | None:
 def ask_claude(message: str) -> str | None:
     """One small `claude -p` call (no tools, no saved thread) -> a clean title, or None."""
     b = spawn.claude_bin()
-    cmd = [b, "-p", "--output-format", "json", "--model", MODEL, "--tools", "", "--no-session-persistence",
+    cmd = [b, "-p", "--output-format", "json", "--model", _model(), "--tools", "", "--no-session-persistence",
            "--strict-mcp-config", "--disable-slash-commands", "--system-prompt", SYSTEM_PROMPT]
     # a lone surrogate (badly decoded text) cannot be written to the pipe
     prompt = message[:MESSAGE_CHARS].encode("utf-8", "replace").decode("utf-8")

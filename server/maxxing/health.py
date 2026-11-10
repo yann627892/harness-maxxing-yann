@@ -200,7 +200,9 @@ def claude_auth_state() -> dict:
     as configured."""
     from . import claude_auth as ca
     st = ca.status()
-    if st["method"] is None and (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")):
+    env_auth = (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+                or (os.environ.get("ANTHROPIC_BASE_URL") and os.environ.get("ANTHROPIC_AUTH_TOKEN")))
+    if st["method"] is None and env_auth:
         st = {**st, "ok": True, "method": "env", "detail": "Credentials in the environment"}
     return st
 

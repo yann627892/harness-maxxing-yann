@@ -36,6 +36,16 @@ log = logging.getLogger(__name__)
 ME = "me"
 TEXT_MAX = 8000
 SUMMARY_MODEL = "sonnet"       # Claude Code's name for its newest Sonnet
+
+
+def _summary_model() -> str:
+    """The summary model: the connected gateway's id for that role, else Claude Code's own."""
+    try:
+        from . import gateway
+        return gateway.small_model("sonnet")
+    except ImportError:
+        return SUMMARY_MODEL
+
 SUMMARY_TIMEOUT_S = 120
 SUMMARY_MESSAGES = 200         # at most this many messages are summarized
 FILES_MAX = 10                  # files per message
@@ -650,7 +660,7 @@ def summarize(cid: str, ids: list[str] | None = None, since: float | None = None
         if len(part) < 2:
             raise TeamError(409, "nothing_new", "Choose at least two messages to summarize")
         text = _transcript(doc, part)
-    cmd = [spawn.claude_bin(), "-p", "--output-format", "json", "--model", SUMMARY_MODEL, "--tools", "",
+    cmd = [spawn.claude_bin(), "-p", "--output-format", "json", "--model", _summary_model(), "--tools", "",
            "--no-session-persistence", "--strict-mcp-config", "--disable-slash-commands", "--system-prompt", SUMMARY_PROMPT]
     t0 = time.time()
     try:

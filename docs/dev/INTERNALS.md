@@ -100,6 +100,24 @@ Python modules call each other only through these functions. Keep signatures sta
   finds a sign-in error; `status() -> {ok, method, detail, checked_at, error}` (GET /api/claude/status `auth`,
   health, doctor); `needs_check()` - no verification in the last 6 h (background check in api/claude.py).
 
+## maxxing.gateway  (an LLM gateway in place of the Anthropic credentials)
+- An Anthropic-compatible endpoint (OpenCode Zen / Go, OpenRouter, custom) connected from Settings -> Claude.
+  Connection: secrets.json `anthropic_base_url` + `anthropic_auth_token` (the bearer key), config.json
+  `gateway` = `{provider, models:{opus, sonnet, haiku, test}}`; the vault and the spawner reserve
+  `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` (a secret named like that must not shadow the connection).
+- `PRESETS` - the provider table (address, key hint, default ids); `valid_base_url(url) -> str|None` - https only
+  (http on a private address), optional port, no query or fragment; `configured()` / `public()` - the connection
+  for the server / for GET /api/claude/status; `describe()` - the auth_method detail line.
+- `auth_env(out)` - the variables of a Claude process: `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`,
+  `ANTHROPIC_API_KEY=""` (no x-api-key header, no fallback to api.anthropic.com) and the
+  `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` pins (`role_models()`; with nothing pinned every role falls
+  back to the default model). `spawn.auth_env()` calls it first: a connected gateway replaces the stored
+  Anthropic token/key entirely, and `connect()` / `clear()` keep exactly one credential at a time.
+- `test_model()` - the cheapest gateway id for the test call; `small_model(role)` - the id of a one-line
+  background call (session titles, team summaries); `model_ids()` - the picker list (service.models() replaces
+  the Anthropic built-ins with them). `connect(provider, base_url, value)` / `clear()` - the state changes
+  (api/claude.py set_auth / delete_auth).
+
 ## maxxing.auto_update
 - Harness updates itself while nobody uses it. Off by default (config `auto_update`, Settings -> System -> Updates,
   `PUT /api/system/auto-update`, `auto_update` in GET /api/system/version). Loop started by `api/system.py`

@@ -339,7 +339,8 @@ def test_security_headers(client, tree):  # noqa: F811
 
 
 def test_vault_reserved_names(mx):
-    for name in ("NODE_OPTIONS", "BASH_ENV", "GIT_SSH_COMMAND", "ANTHROPIC_BASE_URL", "LD_AUDIT"):
+    for name in ("NODE_OPTIONS", "BASH_ENV", "GIT_SSH_COMMAND", "ANTHROPIC_BASE_URL", "LD_AUDIT",
+                 "ANTHROPIC_AUTH_TOKEN"):
         with pytest.raises(vault.VaultError):
             vault.put(name, "x")
 

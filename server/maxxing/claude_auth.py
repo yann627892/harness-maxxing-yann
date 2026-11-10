@@ -21,7 +21,8 @@ CHECK_EVERY_S = 6 * 3600
 AUTH_ERROR = re.compile(
     r"oauth (?:session|token)[^\n]{0,60}(?:expired|revoked|invalid)|could not be refreshed|"
     r"invalid api key|invalid x-api-key|please run /login|authentication_error|authentication failed|"
-    r"failed to authenticate|not logged in|invalid bearer token|token has expired", re.I)
+    r"failed to authenticate|not logged in|invalid bearer token|token has expired|"
+    r"missing api key|unauthorized|api key not (?:found|valid|recognized)|invalid auth credential", re.I)
 
 
 def state_file() -> Path:
@@ -52,6 +53,9 @@ def plan_name(creds: object = None) -> str | None:
 
 def auth_method() -> tuple[str | None, str]:
     """(method, detail) without any network call."""
+    if config.get_secret("anthropic_base_url"):
+        from . import gateway
+        return "gateway", gateway.describe()
     if config.get_secret("claude_oauth_token"):
         return "oauth_token", "Long-lived token stored in Harness Maxxing"
     if config.get_secret("anthropic_api_key"):

@@ -682,10 +682,15 @@ def uv_bin() -> str | None:
 
 def claude_auth() -> tuple[str | None, str]:
     """-> (method, detail). method None = not signed in."""
+    if config.get_secret("anthropic_base_url"):
+        from . import gateway
+        return "gateway", gateway.describe()
     if config.get_secret("claude_oauth_token"):
         return "oauth_token", "long-lived token stored in Harness Maxxing"
     if config.get_secret("anthropic_api_key"):
         return "api_key", "API key stored in Harness Maxxing"
+    if os.environ.get("ANTHROPIC_BASE_URL") and os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+        return "gateway", "ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN in the environment"
     if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
         return "oauth_token", "CLAUDE_CODE_OAUTH_TOKEN in the environment"
     if os.environ.get("ANTHROPIC_API_KEY"):
@@ -866,6 +871,8 @@ def check_claude_auth(live: bool = False) -> Check:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = tok
     if key:
         env["ANTHROPIC_API_KEY"] = key
+    from . import gateway as _gw
+    _gw.auth_env(env)                    # a connected gateway overrides the credentials above
     t0 = time.time()
     code, out = run([b or "claude", "-p", "Reply with the single word: ok"], timeout=120, cwd="/tmp", env=env)
     from . import claude_auth as ca

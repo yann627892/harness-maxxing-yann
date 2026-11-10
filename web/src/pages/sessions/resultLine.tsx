@@ -29,11 +29,12 @@ export function useResultLine() {
   return { hidden, toggle }
 }
 
-/** With an API key the cost is billed; with a Claude subscription (or unknown sign-in) it is Claude Code's
- *  estimate at API prices, not charged. */
+/** With an API key or an LLM gateway (OpenCode Zen / Go, OpenRouter, custom) the cost is billed; with a
+ *  Claude subscription (or unknown sign-in) it is Claude Code's estimate at API prices, not charged. */
 export function useCostIsBilled(): boolean {
   const { data } = useClaudeStatus()
-  return (data?.auth.method as ClaudeAuthMethod) === 'api_key'
+  const method = data?.auth.method as ClaudeAuthMethod | undefined
+  return method === 'api_key' || method === 'gateway'
 }
 
 export function costTip(t: ReturnType<typeof useT>, billed: boolean, turns?: number): string {

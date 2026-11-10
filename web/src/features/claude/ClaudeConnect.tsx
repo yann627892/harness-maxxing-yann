@@ -1,18 +1,27 @@
 import * as React from 'react'
-import { KeyRound, PlugZap, RefreshCw, Terminal, Trash2 } from 'lucide-react'
+import { Globe, KeyRound, PlugZap, RefreshCw, Terminal, Trash2 } from 'lucide-react'
 import { useClaudeAuth, useClaudeAuthRemove, useClaudeStatus, useClaudeTest } from '@/lib/queries'
 import { errorMessage } from '@/lib/api'
 import { fmtRelative } from '@/lib/format'
-import type { ClaudeAuthMethod, ClaudeTestResult } from '@/lib/types'
+import type { ClaudeAuthMethod, ClaudeGatewayProvider, ClaudeTestResult } from '@/lib/types'
 import { useLang, useT, type TKey } from '@/i18n'
-import { Badge, Button, CodeBlock, FormField, SecretInput, Sensitive, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, confirm } from '@/components/ui'
+import { Badge, Button, CodeBlock, FormField, Input, SecretInput, Select, Sensitive, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, confirm } from '@/components/ui'
 import { Callout, Steps } from '../common'
 
 const METHOD: Record<NonNullable<ClaudeAuthMethod>, TKey> = {
   oauth_token: 'claude.method.oauth_token',
   credentials: 'claude.method.credentials',
   api_key: 'claude.method.api_key',
+  gateway: 'claude.method.gateway',
 }
+
+/** Gateway presets, in the same order the server knows them (maxxing/gateway.py). */
+const GW: { id: ClaudeGatewayProvider; label: TKey; desc: TKey; placeholder: string; keyUrl?: string }[] = [
+  { id: 'zen', label: 'claude.gw.zen', desc: 'claude.gw.zenDesc', placeholder: 'oc_sk…', keyUrl: 'https://opencode.ai/console' },
+  { id: 'zen_go', label: 'claude.gw.zen_go', desc: 'claude.gw.zen_goDesc', placeholder: 'oc_sk…', keyUrl: 'https://opencode.ai/console' },
+  { id: 'openrouter', label: 'claude.gw.openrouter', desc: 'claude.gw.openrouterDesc', placeholder: 'sk-or…', keyUrl: 'https://openrouter.ai/settings/keys' },
+  { id: 'custom', label: 'claude.gw.custom', desc: 'claude.gw.customDesc', placeholder: '…' },
+]
 
 /** Live status line + test button. */
 export function ClaudeStatusCard({ onReplace }: { onReplace?: () => void }) {
@@ -62,6 +71,7 @@ export function ClaudeStatusCard({ onReplace }: { onReplace?: () => void }) {
               · <Sensitive>{s.auth.detail}</Sensitive>
             </span>
           )}
+          {s.gateway && <span className="text-muted-foreground">· {s.gateway.base_url}</span>}
           {s.auth.ok && s.auth.checked_at && (
             <span className="text-muted-foreground">· {t('claude.verified', { when: fmtRelative(s.auth.checked_at, lang) })}</span>
           )}
@@ -96,20 +106,26 @@ export function ClaudeStatusCard({ onReplace }: { onReplace?: () => void }) {
   )
 }
 
-/** Paste a `claude setup-token` OAuth token or an Anthropic API key, then the server tests it. */
+/** Paste a `claude setup-token` OAuth token, an Anthropic API key, or a gateway key (OpenCode Zen /
+ *  Go, OpenRouter, custom Anthropic-compatible endpoint), then the server tests it. */
 export function ClaudeAuthForm({ onDone }: { onDone?: () => void }) {
   const t = useT()
-  const [kind, setKind] = React.useState<'oauth_token' | 'api_key'>('oauth_token')
+  const [kind, setKind] = React.useState<'oauth_token' | 'api_key' | 'gateway'>('oauth_token')
+  const [provider, setProvider] = React.useState<ClaudeGatewayProvider>('zen')
+  const [baseUrl, setBaseUrl] = React.useState('')
   const [value, setValue] = React.useState('')
   const [error, setError] = React.useState<string | null>(null)
   const auth = useClaudeAuth()
+  const gw = GW.find((g) => g.id === provider) || GW[0]
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     const v = value.trim()
-    if (!v) return setError(t('claude.pasteFirst'))
+    const url = baseUrl.trim()
+    if (!v) return setError(kind === 'gateway' ? t('claude.gwKeyFirst') : t('claude.pasteFirst'))
+    if (kind === 'gateway' && provider === 'custom' && !url) return setError(t('claude.gatewayUrlFirst'))
     setError(null)
     auth.mutate(
-      { kind, value: v },
+      kind === 'gateway' ? { kind, value: v, provider, ...(provider === 'custom' ? { base_url: url } : {}) } : { kind, value: v },
       {
         onSuccess: (r) => {
           if (r.ok) {
@@ -132,6 +148,9 @@ export function ClaudeAuthForm({ onDone }: { onDone?: () => void }) {
         </TabsTrigger>
         <TabsTrigger value="api_key" className="flex-1">
           <KeyRound /> {t('claude.tabApiKey')}
+        </TabsTrigger>
+        <TabsTrigger value="gateway" className="flex-1">
+          <Globe /> {t('claude.tabGateway')}
         </TabsTrigger>
       </TabsList>
       <form onSubmit={submit} className="mt-4 grid gap-5" noValidate>
@@ -165,8 +184,44 @@ export function ClaudeAuthForm({ onDone }: { onDone?: () => void }) {
             ]}
           />
         </TabsContent>
-        <FormField label={kind === 'oauth_token' ? t('claude.tokenLabel') : t('claude.keyLabel')} error={error || undefined} hint={t('claude.storedHint')}>
-          <SecretInput value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === 'oauth_token' ? 'sk-ant-oat01-…' : 'sk-ant-api03-…'} />
+        <TabsContent value="gateway" className="mt-0 grid gap-4">
+          <p className="text-sm text-muted-foreground">{t('claude.gatewayIntro')}</p>
+          <FormField label={t('claude.gatewayProvider')}>
+            <Select
+              value={provider}
+              onValueChange={(v) => setProvider(v as ClaudeGatewayProvider)}
+              aria-label={t('claude.gatewayProvider')}
+              options={GW.map((g) => ({ value: g.id, label: `${t(g.label)} · ${t(g.desc)}` }))}
+            />
+          </FormField>
+          {provider === 'custom' ? (
+            <FormField label={t('claude.gatewayUrlLabel')} hint={t('claude.gatewayUrlHint')}>
+              <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://gw.example.com/anthropic" inputMode="url" autoComplete="off" />
+            </FormField>
+          ) : (
+            <Steps
+              items={[
+                <span>
+                  {t(provider === 'openrouter' ? 'claude.apiStep1' : 'claude.gwZenStep1')}{' '}
+                  <a href={gw.keyUrl} target="_blank" rel="noopener noreferrer">
+                    {gw.keyUrl?.replace('https://', '')}
+                  </a>
+                </span>,
+                <span>{t(provider === 'openrouter' ? 'claude.gwOrStep2' : 'claude.gwZenStep2')}</span>,
+              ]}
+            />
+          )}
+        </TabsContent>
+        <FormField
+          label={kind === 'oauth_token' ? t('claude.tokenLabel') : kind === 'gateway' ? t('claude.gwKeyLabel') : t('claude.keyLabel')}
+          error={error || undefined}
+          hint={t('claude.storedHint')}
+        >
+          <SecretInput
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={kind === 'oauth_token' ? 'sk-ant-oat01-…' : kind === 'gateway' ? gw.placeholder : 'sk-ant-api03-…'}
+          />
         </FormField>
         <div className="flex flex-wrap items-center gap-3">
           <Button type="submit" loading={auth.isPending}>

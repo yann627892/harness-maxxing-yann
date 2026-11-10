@@ -235,7 +235,11 @@ def record(o: dict, prompt: str, images: int = 0, continued: bool = False) -> No
                                                                    "ANTHROPIC_API_KEY", "MX_TEST_VAR",
                                                                    "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
                                                                    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
-                                                                   "MAXXING_SESSION")},
+                                                                   "MAXXING_SESSION", "ANTHROPIC_BASE_URL",
+                                                                   "ANTHROPIC_AUTH_TOKEN",
+                                                                   "ANTHROPIC_DEFAULT_OPUS_MODEL",
+                                                                   "ANTHROPIC_DEFAULT_SONNET_MODEL",
+                                                                   "ANTHROPIC_DEFAULT_HAIKU_MODEL")},
                             "at": time.time(), **({"continued": True} if continued else {})}) + "\n")
 
 

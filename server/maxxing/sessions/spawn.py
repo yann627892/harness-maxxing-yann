@@ -77,7 +77,8 @@ def claude_bin() -> str:
 _RESERVED = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "PWD", "TERM", "LANG", "LC_ALL", "TZ",   # = vault.RESERVED
              "HOSTNAME", "TMPDIR", "PYTHONPATH", "LD_PRELOAD", "LD_LIBRARY_PATH",
              "LD_AUDIT", "BASH_ENV", "ENV", "PROMPT_COMMAND", "NODE_OPTIONS", "NODE_PATH",
-             "PYTHONSTARTUP", "PYTHONHOME", "GIT_SSH_COMMAND", "GIT_EXEC_PATH", "ANTHROPIC_BASE_URL"}
+             "PYTHONSTARTUP", "PYTHONHOME", "GIT_SSH_COMMAND", "GIT_EXEC_PATH", "ANTHROPIC_BASE_URL",
+             "ANTHROPIC_AUTH_TOKEN"}
 
 
 def _exposed_vault(secrets: dict) -> dict[str, str]:
@@ -109,9 +110,14 @@ def _named_vault(names: list[str]) -> dict[str, str]:
 
 def auth_env(secrets: dict | None = None, keys: list[str] | None = None) -> dict[str, str]:
     """Claude credentials stored in secrets.json + the user's vault entries flagged `expose`.
-    keys: only these vault entries instead (an agent's turn sees the keys of its agent.json, nothing else)."""
+    keys: only these vault entries instead (an agent's turn sees the keys of its agent.json, nothing else).
+    A connected gateway (maxxing.gateway: OpenCode Zen / Go, OpenRouter, custom) replaces the Anthropic
+    credentials entirely: ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY deliberately empty."""
     s = secrets if secrets is not None else config.load_secrets()
     out = _exposed_vault(s) if keys is None else _named_vault(keys)
+    if str(s.get("anthropic_base_url") or ""):
+        from .. import gateway
+        return gateway.auth_env(out, s)
     if s.get("claude_oauth_token"):
         out["CLAUDE_CODE_OAUTH_TOKEN"] = str(s["claude_oauth_token"])
     if s.get("anthropic_api_key"):

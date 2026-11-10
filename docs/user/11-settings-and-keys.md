@@ -15,7 +15,7 @@ two blocks):
 | | **Profile** | your pseudo, a **photo** (kept on this server, shown instead of the color and emoji, also to your Team contacts), color and emoji (picked from a searchable list) for messages, notifications and Team, with a preview; **Stay in touch**: the optional e-mail, news and anonymous counter (see [License](license)) |
 | | **Security** | change the password, two-step sign-in with Telegram (see [Telegram](telegram#two-step-sign-in)), **Privacy**: the presentation mode by default (new browsers start with your data masked), sign out everywhere |
 | | **Features** | every page of the sidebar: the ones always there, the optional ones with their switch, the options of the sessions under Sessions (below) |
-| **Claude** | **Claude** | authentication (status, token or API key, live test), default model, automatic compaction threshold, compaction when you come back to an idle session, smart resume (a summary written for the message you come back with), short session titles (and whether Claude writes them), automatic Claude Code updates, permission mode |
+| **Claude** | **Claude** | authentication (status, token, API key or LLM gateway, live test), default model, automatic compaction threshold, compaction when you come back to an idle session, smart resume (a summary written for the message you come back with), short session titles (and whether Claude writes them), automatic Claude Code updates, permission mode |
 | | **Memory** | second brain cleaner: line limit per `memory.md`, **Clean now**, size of every memory file - see [Memory](memory) |
 | | **Skills** | the skills Claude sees on this server: **yours** (in `~/.claude/skills`, the workspace, a project or a topic, with where each one lives) and the ones **shipped with Harness** (refreshed by every update, read-only); **Open**, **Edit with Claude**, **Share with the community**, **New skill** - see [Skills](skills) |
 | | **MCP** | the MCP servers of Claude Code (a service's tools for Claude): every session or one topic, state, **Connect** (sign-in), **Remove** - see [MCP servers](28-mcp.md) |
@@ -116,10 +116,13 @@ Also:
 
 ## Claude authentication
 
-Three ways, best first:
+Four ways, best first:
 1. **Long-lived token**: run `claude setup-token` on any computer with a browser, paste the token.
 2. **API key** from the Anthropic console (billed per use).
 3. **CLI login** done on the server (`claude`, then `/login`): detected automatically.
+4. **LLM gateway** (the **Gateway** tab): an Anthropic-compatible endpoint instead of an Anthropic
+   account — OpenCode Zen (pay-as-you-go credits), OpenCode Go (included in a Go subscription),
+   OpenRouter, or a custom gateway. See [LLM gateway](#llm-gateway).
 
 **Test** makes a real one-line call and shows the model and the latency.
 
@@ -139,6 +142,36 @@ keeps the newest Opus, Sonnet, Haiku and Fable: the model lists (default model, 
 is the newest of its family (say Sonnet 5.5) and a newer one comes out (Sonnet 6), the default follows it. A model
 you chose on a topic, a job or an agent is never changed. Short titles, the connection test and Team summaries
 always use the newest Haiku or Sonnet.
+
+## LLM gateway
+
+The **Gateway** tab of Settings -> Claude (or the onboarding) connects the Claude Code CLI to an
+**Anthropic-compatible gateway** instead of an Anthropic account: you paste the gateway's API key,
+Harness Maxxing stores it like every other credential (secrets file, root only) and points every
+`claude` process at the gateway. Usage is billed to that account.
+
+| Provider | Address | Key |
+|---|---|---|
+| **OpenCode Zen** | opencode.ai/inference/anthropic | a personal key from the [console](https://opencode.ai/console), pay-as-you-go credits |
+| **OpenCode Go** | opencode.ai/inference/go/anthropic | the same console key; Go models are billed to the subscription |
+| **OpenRouter** | openrouter.ai/api | a key from [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) |
+| **Custom** | whatever you type | the gateway's bearer key |
+
+How it works under the hood (all automatic, nothing to configure by hand): the turn environment
+gets `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` (the bearer credential Claude Code documents for
+gateways), `ANTHROPIC_API_KEY` is left empty on purpose, and the `opus` / `sonnet` / `haiku` roles
+Claude Code asks for by name are pinned to the gateway's model ids, so background tasks (session
+titles, team summaries) ask for ids the gateway knows. The model picker lists the gateway's models
+instead of the Anthropic ones, and **Test** calls the gateway's cheapest model.
+
+Notes:
+- A gateway replaces the stored Anthropic token or key (one credential at a time, as before);
+  removing it in Settings -> Claude brings back "not connected".
+- OpenRouter recommends Anthropic models with Claude Code (its `anthropic/…` ids): other model
+  families work through the gateway's translation but are not guaranteed.
+- A gateway can also be configured in the service environment (`ANTHROPIC_BASE_URL` +
+  `ANTHROPIC_AUTH_TOKEN` in the systemd unit): it is then detected as *credentials in the
+  environment* and the UI connection is not used.
 
 ## Claude Code updates
 

@@ -14,13 +14,13 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from .. import claude_auth, claude_models, claude_update, config
+from .. import claude_auth, claude_models, claude_update, config, gateway
 from ..security import require_auth
 from ..sessions import service, spawn
 
 router = APIRouter(prefix="/api/claude", tags=["claude"], dependencies=[Depends(require_auth)])
 
-TEST_MODEL = "haiku"          # Claude Code's name for its newest Haiku
+TEST_MODEL = "haiku"          # Claude Code's name for its newest Haiku; a gateway uses its own ids
 TEST_PROMPT = "Reply with the single word: ok"
 TEST_TIMEOUT_S = 90
 PERMISSION_MODES = ("bypass", "acceptEdits", "default", "ask")
@@ -66,8 +66,11 @@ def auth_status() -> dict:
 
 
 # ---- test call -----------------------------------------------------------------------------
-def run_test(model: str = TEST_MODEL, source: str = "test", timeout_s: int = TEST_TIMEOUT_S) -> dict:
-    """Real one-line call through the CLI -> {ok, model, ms, error?} (also remembered)."""
+def run_test(model: str | None = None, source: str = "test", timeout_s: int = TEST_TIMEOUT_S) -> dict:
+    """Real one-line call through the CLI -> {ok, model, ms, error?} (also remembered).
+    model None: a connected gateway's cheap id, else the Anthropic fallback."""
+    if model is None:
+        model = gateway.test_model() or TEST_MODEL
     t0 = time.time()
     out: dict = {"ok": False, "model": model, "ms": 0}
     b = _resolved_bin()
@@ -165,6 +168,7 @@ async def status():
     version = await asyncio.to_thread(claude_version)
     return {"installed": bool(await asyncio.to_thread(_resolved_bin)), "version": version,
             "auth": await asyncio.to_thread(auth_status),
+            "gateway": gateway.public(),
             "default_model": cfg.get("default_model") or "",
             "permission_mode": cfg.get("permission_mode") or "bypass",
             "auto_compact_tokens": config.int_setting(cfg, "auto_compact_tokens"),
@@ -179,8 +183,10 @@ async def status():
 
 
 class AuthIn(BaseModel):
-    kind: Literal["oauth_token", "api_key"]
+    kind: Literal["oauth_token", "api_key", "gateway"]
     value: str
+    provider: str | None = None      # gateway: zen | zen_go | openrouter | custom
+    base_url: str | None = None      # gateway: the endpoint (required for custom)
 
 
 @router.post("/auth")
@@ -189,8 +195,17 @@ async def set_auth(body: AuthIn):
     # printable ASCII only: a NUL byte made every turn fail to start, a lone surrogate could not be stored
     if len(value) < 10 or any(c.isspace() for c in value) or not (value.isascii() and value.isprintable()):
         raise HTTPException(400, detail={"error": "invalid", "message": "This does not look like a token"})
+    if body.kind == "gateway":
+        try:
+            gateway.connect(body.provider or "custom", body.base_url, value)
+        except ValueError as e:
+            raise HTTPException(400, detail={"error": "invalid", "message": str(e)}) from None
+        claude_auth.forget()
+        res = await asyncio.to_thread(run_test)
+        return {"ok": res["ok"], **({"error": res["error"]} if not res["ok"] else {})}
     for kind, name in SECRET_FOR.items():               # one stored credential at a time
         config.set_secret(name, value if kind == body.kind else None)
+    gateway.clear()                                     # ...and the gateway too
     res = await asyncio.to_thread(run_test)
     return {"ok": res["ok"], **({"error": res["error"]} if not res["ok"] else {})}
 
@@ -199,6 +214,7 @@ async def set_auth(body: AuthIn):
 async def delete_auth():
     for name in SECRET_FOR.values():
         config.set_secret(name, None)
+    gateway.clear()
     claude_auth.forget()
     return {"ok": True}
 

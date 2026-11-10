@@ -32,7 +32,7 @@ export type OnboardingStepKey = 'password' | 'claude' | 'workspace' | 'telegram'
 export type OnboardingState = { completed: boolean; steps: Record<OnboardingStepKey, boolean> }
 
 /* ---------------------------------------------------------------- Claude */
-export type ClaudeAuthMethod = 'oauth_token' | 'credentials' | 'api_key' | null
+export type ClaudeAuthMethod = 'oauth_token' | 'credentials' | 'api_key' | 'gateway' | null
 /** `ask`: what is not pre-allowed waits for the user's Allow / Deny (topics, global setting, jobs; not agents). */
 export type PermissionMode = 'bypass' | 'acceptEdits' | 'default' | 'ask'
 export type ClaudeModel = { id: string; label: string; /** Last context window Claude Code reported for this model here. */ context_window?: number | null }
@@ -41,6 +41,8 @@ export type ClaudeStatus = {
   version: string | null
   /** `ok` reflects the last REAL call (turn / test / background check); `checked_at` null = not verified yet. */
   auth: { ok: boolean; method: ClaudeAuthMethod; detail: string | null; checked_at?: number | null; error?: string | null }
+  /** The connected LLM gateway (OpenCode Zen / Go, OpenRouter, custom), null = Anthropic credentials. */
+  gateway?: ClaudeGateway
   default_model: string
   permission_mode: PermissionMode
   /** A turn ending above this context (tokens) is followed by an automatic compaction; 0 = off. */
@@ -66,7 +68,9 @@ export type ClaudeAutoUpdate = {
   latest: string | null
   last: { from: string; to: string; at: number; ok: boolean; error: string | null } | null
 }
-export type ClaudeAuthBody = { kind: 'oauth_token' | 'api_key'; value: string }
+export type ClaudeGatewayProvider = 'zen' | 'zen_go' | 'openrouter' | 'custom'
+export type ClaudeGateway = { provider: ClaudeGatewayProvider; name: string; base_url: string; models: Record<string, string> } | null
+export type ClaudeAuthBody = { kind: 'oauth_token' | 'api_key' | 'gateway'; value: string; provider?: ClaudeGatewayProvider; base_url?: string }
 export type ClaudeAuthResult = { ok: boolean; error?: string }
 export type ClaudeTestResult = { ok: boolean; model: string; ms: number; error?: string }
 export type ClaudeSettingsBody = { default_model?: string; permission_mode?: PermissionMode; auto_compact_tokens?: number; idle_compact_tokens?: number; idle_compact_after_s?: number; smart_resume_tokens?: number; protect_secrets?: boolean; short_titles?: boolean; short_titles_model?: boolean; claude_auto_update?: boolean }
