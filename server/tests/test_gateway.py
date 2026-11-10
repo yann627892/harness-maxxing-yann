@@ -71,6 +71,21 @@ def test_connect_zen_and_status(client, mx):
     # the test call asks the gateway's cheap model, not Anthropic's
     t = client.post("/api/claude/test").json()
     assert t["ok"] and t["model"] == "claude-haiku-5-5"
+    assert any(m["id"] == "claude-sonnet-5-5" for m in st["models"])   # the picker shows them right away
+
+
+def test_gateway_models_refresh_without_waiting(client, mx):
+    """Connecting a gateway refreshes the model list immediately: the picker never waits out the
+    60 s cache of service.models() still holding the Anthropic ids of the previous status call."""
+    st = client.get("/api/claude/status").json()                 # fills the cache with Anthropic ids
+    assert any(m["id"].startswith("claude-") for m in st["models"])
+    client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "openrouter"})
+    st = client.get("/api/claude/status").json()
+    ids = [m["id"] for m in st["models"]]
+    assert "anthropic/claude-sonnet-5.5" in ids and "claude-sonnet-5-5" not in ids
+    client.delete("/api/claude/auth")                             # signed out: the Anthropic ids come back
+    st = client.get("/api/claude/status").json()
+    assert any(m["id"].startswith("claude-") and "/" not in m["id"] for m in st["models"])
 
 
 def test_gateway_replaces_anthropic_credentials(client, mx):

@@ -201,11 +201,13 @@ async def set_auth(body: AuthIn):
         except ValueError as e:
             raise HTTPException(400, detail={"error": "invalid", "message": str(e)}) from None
         claude_auth.forget()
+        service.forget_models_cache()            # the picker switches to the gateway's ids right away
         res = await asyncio.to_thread(run_test)
         return {"ok": res["ok"], **({"error": res["error"]} if not res["ok"] else {})}
     for kind, name in SECRET_FOR.items():               # one stored credential at a time
         config.set_secret(name, value if kind == body.kind else None)
     gateway.clear()                                     # ...and the gateway too
+    service.forget_models_cache()                      # ...and the picker goes back to the Anthropic ids
     res = await asyncio.to_thread(run_test)
     return {"ok": res["ok"], **({"error": res["error"]} if not res["ok"] else {})}
 
@@ -216,6 +218,7 @@ async def delete_auth():
         config.set_secret(name, None)
     gateway.clear()
     claude_auth.forget()
+    service.forget_models_cache()                      # nothing connected: the Anthropic ids come back
     return {"ok": True}
 
 
