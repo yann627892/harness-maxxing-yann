@@ -83,6 +83,10 @@ def test_gateway_models_refresh_without_waiting(client, mx):
     st = client.get("/api/claude/status").json()
     ids = [m["id"] for m in st["models"]]
     assert "anthropic/claude-sonnet-5.5" in ids and "claude-sonnet-5-5" not in ids
+    labels = {m["id"]: m["label"] for m in st["models"]}
+    assert labels["anthropic/claude-sonnet-5.5"] == "Sonnet 5.5"
+    assert labels["z-ai/glm-5.3-prime"] == "GLM 5.3 Prime"          # readable labels for other families
+    assert labels["openai/gpt-6.1-terra"] == "GPT 6.1 Terra"
     client.delete("/api/claude/auth")                             # signed out: the Anthropic ids come back
     st = client.get("/api/claude/status").json()
     assert any(m["id"].startswith("claude-") and "/" not in m["id"] for m in st["models"])

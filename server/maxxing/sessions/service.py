@@ -1036,12 +1036,16 @@ _models_cache: tuple[float, list[dict]] = (0.0, [])
 def _label(mid: str) -> str:
     if "/" in mid:                               # a gateway id ("anthropic/claude-opus-5.5", "gpt-6-luna")
         mid = mid.rsplit("/", 1)[-1]
-    parts = mid.split("-")[1:]
-    if not parts:
-        return mid
-    fam = parts[0].capitalize()
-    nums = [p for p in parts[1:] if re.fullmatch(r"\d+(?:\.\d+)?", p) and len(p) < 8]
-    return f"{fam} {'.'.join(nums)}".strip()
+    parts = mid.split("-")
+    if parts[0].lower() == "claude" and len(parts) > 1:      # a Claude shows its family: "Sonnet 5.5"
+        fam = parts[1].capitalize()
+        nums = [p for p in parts[2:] if re.fullmatch(r"\d+(?:\.\d+)?", p) and len(p) < 8]
+        return f"{fam} {'.'.join(nums)}".strip()
+    fam = {"gpt": "GPT", "glm": "GLM", "deepseek": "DeepSeek", "minimax": "MiniMax"}.get(
+        parts[0].lower(), parts[0].capitalize())
+    fam = re.sub(r"([a-z])(\d)", r"\1 \2", fam)              # "Qwen3.8" -> "Qwen 3.8"
+    rest = " ".join(w[:1].upper() + w[1:] for w in parts[1:])
+    return f"{fam} {rest}".strip()
 
 
 _models_seen: dict[str, tuple[int, int, set[str]]] = {}    # session -> (log inode, bytes scanned, models seen)

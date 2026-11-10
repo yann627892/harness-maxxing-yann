@@ -62,7 +62,11 @@ PRESETS: dict[str, dict] = {
                    "haiku": "anthropic/claude-haiku-5.5", "test": "anthropic/claude-haiku-5.5"},
         # OpenRouter itself warns Claude Code is only guaranteed to work with Anthropic models.
         "extra": ["anthropic/claude-fable-5.2", "anthropic/claude-opus-5", "anthropic/claude-sonnet-5",
-                  "anthropic/claude-haiku-4.5", "anthropic/claude-opus-4.8"],
+                  "anthropic/claude-haiku-4.5", "anthropic/claude-opus-4.8",
+                  # other families run through OpenRouter's translation of the Anthropic API, not guaranteed
+                  "openai/gpt-6.1-terra-pro", "openai/gpt-6.1-terra", "google/gemini-4-argon",
+                  "x-ai/grok-4.7", "deepseek/deepseek-v4.1-flash", "moonshotai/kimi-k3.1-pro",
+                  "qwen/qwen3.8-max-prime", "z-ai/glm-5.3-prime", "z-ai/glm-5.3-flash"],
     },
     "custom": {
         "name": "Custom gateway",

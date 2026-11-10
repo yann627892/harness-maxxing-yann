@@ -168,7 +168,8 @@ Notes:
 - A gateway replaces the stored Anthropic token or key (one credential at a time, as before);
   removing it in Settings -> Claude brings back "not connected".
 - OpenRouter recommends Anthropic models with Claude Code (its `anthropic/…` ids): other model
-  families work through the gateway's translation but are not guaranteed.
+  families work through the gateway's translation but are not guaranteed. The picker lists a few
+  anyway (GPT, Gemini, Grok, DeepSeek, Kimi, Qwen, GLM) beside the Claude ids.
 - A gateway can also be configured in the service environment (`ANTHROPIC_BASE_URL` +
   `ANTHROPIC_AUTH_TOKEN` in the systemd unit): it is then detected as *credentials in the
   environment* and the UI connection is not used.
