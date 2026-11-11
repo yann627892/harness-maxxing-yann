@@ -18,9 +18,10 @@ Python modules call each other only through these functions. Keep signatures sta
 - `get_session(sid) -> dict | None`
   Both read metas through `store.read_cached(sid)` (parsed meta kept per file (inode, mtime_ns, size); shared
   dict, never mutate it).
-- `create_session(path, message=None, title=None, model=None, attachments=None, source="web",
+- `create_session(path, message=None, title=None, model=None, provider=None, attachments=None, source="web",
                    notify=False, cron=False, env=None, timeout_s=None, auto_title=False) -> dict`
-   `env` = extra environment for the turn (dict), `timeout_s` = max turn duration (stop after). `auto_title`: the
+   `env` = extra environment for the turn (dict), `timeout_s` = max turn duration (stop after). `provider`:
+   "gateway" | "anthropic" - the credential its turns run on ("" / omitted = the default one). `auto_title`: the
    caller made `title` from the first message (Telegram) - it is shortened like a missing title (sessions.titles).
 - `send_message(sid, text, attachments=None, source="web") -> {"queued": bool, "session": dict}`
 - `stop(sid) -> None` - signals the meta `pid` only while a runner holds the session's run lock
@@ -96,27 +97,37 @@ Python modules call each other only through these functions. Keep signatures sta
 - `pending(sid) -> bool` - a short title is being made (between `schedule` and the end of its thread) or meta
   `title_auto` is set: the Telegram sync waits for it (60 s at most) before creating the session's thread.
 ## maxxing.claude_auth  (stdlib only, also used by the runner)
-- `record(ok, error=None, source="turn"|"test"|"check")` - outcome of a real call; `detect(text) -> str|None`
-  finds a sign-in error; `status() -> {ok, method, detail, checked_at, error}` (GET /api/claude/status `auth`,
-  health, doctor); `needs_check()` - no verification in the last 6 h (background check in api/claude.py).
+- `record(ok, error=None, source="turn"|"test"|"check", provider=None)` - outcome of a real call on that side;
+  `detect(text) -> str|None` finds a sign-in error; `status() -> {ok, method, detail, checked_at, error}` (GET
+  /api/claude/status `auth`, health, doctor); `needs_check()` - no verification in the last 6 h (background check
+  in api/claude.py).
 
-## maxxing.gateway  (an LLM gateway in place of the Anthropic credentials)
+## maxxing.gateway  (an LLM gateway beside the Anthropic credentials)
 - An Anthropic-compatible endpoint (OpenCode Zen / Go, OpenRouter, custom) connected from Settings -> Claude.
   Connection: secrets.json `anthropic_base_url` + `anthropic_auth_token` (the bearer key), config.json
-  `gateway` = `{provider, models:{opus, sonnet, haiku, test}}`; the vault and the spawner reserve
-  `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` (a secret named like that must not shadow the connection).
+  `gateway` = `{provider, models:{opus, sonnet, haiku, test}}` and `claude_provider` (the default side); the vault
+  and the spawner reserve `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` (a secret named like that must not shadow
+  the connection). The gateway and the Anthropic credentials (subscription token, API key, CLI sign-in) coexist:
+  `connect()` / `clear()` never touch the other side, each session picks its provider with its model, and a
+  `claude_provider` pointing at a removed credential falls back to the other one.
+- `PROVIDERS`; `anthropic_configured()` - the Anthropic side exists; `default_provider()` - config `claude_provider`,
+  else the connected side; `provider_of(meta)` - a session's side: its stored choice, else (a session from before
+  both were connected) the origin of its model id, else the default; `set_default_provider()` (api/claude.py
+  settings) - stores it and moves `default_model` to that side's Sonnet.
 - `PRESETS` - the provider table (address, key hint, default ids); `valid_base_url(url) -> str|None` - https only
   (http on a private address), optional port, no query or fragment; `configured()` / `public()` - the connection
   for the server / for GET /api/claude/status; `describe()` - the auth_method detail line.
-- `auth_env(out)` - the variables of a Claude process: `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`,
-  `ANTHROPIC_API_KEY=""` (no x-api-key header, no fallback to api.anthropic.com) and the
-  `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` pins (`role_models()`; with nothing pinned every role falls
-  back to the default model). `spawn.auth_env()` calls it first: a connected gateway replaces the stored
-  Anthropic token/key entirely, and `connect()` / `clear()` keep exactly one credential at a time.
-- `test_model()` - the cheapest gateway id for the test call; `small_model(role)` - the id of a one-line
-  background call (session titles, team summaries); `model_ids()` - the picker list (service.models() replaces
-  the Anthropic built-ins with them). `connect(provider, base_url, value)` / `clear()` - the state changes
-  (api/claude.py set_auth / delete_auth).
+- `auth_env(out, secrets, provider)` - the variables of a Claude process running on the gateway:
+  `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY=""` (no x-api-key header, no fallback to
+  api.anthropic.com) and the `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` pins (`role_models()`; with nothing
+  pinned every role falls back to the default model). `provider` None = the default one; an Anthropic turn gets
+  none of these variables (`spawn.auth_env` adds the stored token / key instead, and `_drop_env_gateway` keeps a
+  gateway configured in the service environment out of it - kept when it is the only credential).
+- `test_model(provider)` - the cheapest gateway id for the test call (None: the test runs on Anthropic);
+  `small_model(role, provider)` - the id of a one-line background call (session titles, team summaries);
+  `model_ids()` - the picker list, `served_ids()` - the ids the gateway really serves (the provider inference:
+  `model_ids` minus an id moved to the Anthropic side by `set_default_provider`). `connect(provider, base_url,
+  value)` / `clear()` - the state changes (api/claude.py set_auth / delete_auth).
 
 ## maxxing.auto_update
 - Harness updates itself while nobody uses it. Off by default (config `auto_update`, Settings -> System -> Updates,

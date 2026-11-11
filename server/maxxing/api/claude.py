@@ -66,28 +66,30 @@ def auth_status() -> dict:
 
 
 # ---- test call -----------------------------------------------------------------------------
-def run_test(model: str | None = None, source: str = "test", timeout_s: int = TEST_TIMEOUT_S) -> dict:
+def run_test(model: str | None = None, source: str = "test", timeout_s: int = TEST_TIMEOUT_S,
+             provider: str | None = None) -> dict:
     """Real one-line call through the CLI -> {ok, model, ms, error?} (also remembered).
-    model None: a connected gateway's cheap id, else the Anthropic fallback."""
+    model None: a connected gateway's cheap id, else the Anthropic fallback. provider: the side
+    to test ("gateway" | "anthropic"); None = the default provider."""
     if model is None:
-        model = gateway.test_model() or TEST_MODEL
+        model = gateway.test_model(provider=provider) or TEST_MODEL
     t0 = time.time()
     out: dict = {"ok": False, "model": model, "ms": 0}
     b = _resolved_bin()
     if not b:
         out["error"] = "Claude Code is not installed"
-        return _remember(out, source)
+        return _remember(out, source, provider)
     cwd = config.state_dir("claude-test")
     try:
         r = subprocess.run([b, "-p", "--output-format", "json", "--model", model], input=TEST_PROMPT,
                            capture_output=True, text=True, timeout=timeout_s, cwd=cwd,
-                           env=spawn.claude_env(None, "default"))
+                           env=spawn.claude_env(None, "default", provider=provider))
     except subprocess.TimeoutExpired:
         out.update(ms=int((time.time() - t0) * 1000), error=f"No answer within {timeout_s} s")
-        return _remember(out, source)
+        return _remember(out, source, provider)
     except OSError as e:
         out.update(error=str(e))
-        return _remember(out, source)
+        return _remember(out, source, provider)
     out["ms"] = int((time.time() - t0) * 1000)
     try:
         data = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else {}
@@ -101,17 +103,17 @@ def run_test(model: str | None = None, source: str = "test", timeout_s: int = TE
             out["model"] = next(iter(mu))
     else:
         out["error"] = (text or r.stderr or r.stdout or f"exit code {r.returncode}").strip()[-400:]
-    return _remember(out, source)
+    return _remember(out, source, provider)
 
 
-def _remember(out: dict, source: str) -> dict:
+def _remember(out: dict, source: str, provider: str | None = None) -> dict:
     """Record the outcome. A background check only flips the state on a real sign-in error
     (a timeout or a network glitch is not "signed out"); an explicit test always does."""
     err = out.get("error")
     if out["ok"]:
-        claude_auth.record(True, None, source)
+        claude_auth.record(True, None, source, provider)
     elif source == "test" or claude_auth.detect(err):
-        claude_auth.record(False, claude_auth.detect(err) or err, source)
+        claude_auth.record(False, claude_auth.detect(err) or err, source, provider)
     return out
 
 
@@ -166,9 +168,12 @@ async def shutdown() -> None:
 async def status():
     cfg = config.load_config()
     version = await asyncio.to_thread(claude_version)
+    anth = await asyncio.to_thread(claude_auth.anthropic_method)
     return {"installed": bool(await asyncio.to_thread(_resolved_bin)), "version": version,
             "auth": await asyncio.to_thread(auth_status),
             "gateway": gateway.public(),
+            "anthropic": {"connected": anth[0] is not None, "method": anth[0], "detail": anth[1]},
+            "default_provider": gateway.default_provider(),
             "default_model": cfg.get("default_model") or "",
             "permission_mode": cfg.get("permission_mode") or "bypass",
             "auto_compact_tokens": config.int_setting(cfg, "auto_compact_tokens"),
@@ -200,31 +205,39 @@ async def set_auth(body: AuthIn):
             gateway.connect(body.provider or "custom", body.base_url, value)
         except ValueError as e:
             raise HTTPException(400, detail={"error": "invalid", "message": str(e)}) from None
-        claude_auth.forget()
         service.forget_models_cache()            # the picker switches to the gateway's ids right away
-        res = await asyncio.to_thread(run_test)
+        res = await asyncio.to_thread(run_test, provider="gateway")
         return {"ok": res["ok"], **({"error": res["error"]} if not res["ok"] else {})}
-    for kind, name in SECRET_FOR.items():               # one stored credential at a time
+    # the Anthropic credentials: one of them at a time (both env vars set would be ambiguous), the
+    # gateway connection kept - both sides can be connected at once, each session picks with its model
+    for kind, name in SECRET_FOR.items():
         config.set_secret(name, value if kind == body.kind else None)
-    gateway.clear()                                     # ...and the gateway too
-    service.forget_models_cache()                      # ...and the picker goes back to the Anthropic ids
-    res = await asyncio.to_thread(run_test)
+    service.forget_models_cache()                # ...and the picker gains the Anthropic ids back
+    res = await asyncio.to_thread(run_test, provider="anthropic")
     return {"ok": res["ok"], **({"error": res["error"]} if not res["ok"] else {})}
 
 
 @router.delete("/auth")
-async def delete_auth():
-    for name in SECRET_FOR.values():
-        config.set_secret(name, None)
-    gateway.clear()
-    claude_auth.forget()
-    service.forget_models_cache()                      # nothing connected: the Anthropic ids come back
+async def delete_auth(kind: str | None = None):
+    """Remove one credential (`kind` = "gateway" | "anthropic") or both (no kind)."""
+    if kind not in (None, "gateway", "anthropic"):
+        raise HTTPException(400, detail={"error": "invalid", "message": "kind: gateway or anthropic"})
+    if kind in (None, "gateway"):
+        gateway.clear()
+    if kind in (None, "anthropic"):
+        for name in SECRET_FOR.values():
+            config.set_secret(name, None)
+    if not gateway.anthropic_configured() and not gateway.configured():
+        claude_auth.forget()
+    service.forget_models_cache()                 # the picker follows what remains connected
     return {"ok": True}
 
 
 @router.post("/test")
-async def test():
-    return await asyncio.to_thread(run_test)
+async def test(provider: str | None = None):
+    if provider not in (None, "gateway", "anthropic"):
+        raise HTTPException(400, detail={"error": "invalid", "message": "provider: gateway or anthropic"})
+    return await asyncio.to_thread(run_test, provider=provider)
 
 
 MODEL_RE = re.compile(r"[A-Za-z0-9._:\[\]/@-]{1,100}")
@@ -233,6 +246,7 @@ MODEL_RE = re.compile(r"[A-Za-z0-9._:\[\]/@-]{1,100}")
 class SettingsIn(BaseModel):
     default_model: str | None = None
     permission_mode: str | None = None
+    claude_provider: str | None = None    # which side new sessions and background calls use
     auto_compact_tokens: int | None = Field(None, ge=0, le=2_000_000)
     idle_compact_tokens: int | None = Field(None, ge=0, le=2_000_000)
     idle_compact_after_s: int | None = Field(None, ge=300, le=7 * 86400)
@@ -257,6 +271,12 @@ async def settings(body: SettingsIn):
             raise HTTPException(400, detail={"error": "invalid",
                                              "message": "permission_mode: bypass, acceptEdits, default or ask"})
         changes["permission_mode"] = body.permission_mode
+    if body.claude_provider is not None:
+        if body.claude_provider not in ("anthropic", "gateway"):
+            raise HTTPException(400, detail={"error": "invalid",
+                                             "message": "claude_provider: anthropic or gateway"})
+        gateway.set_default_provider(body.claude_provider)   # also moves default_model with it
+        service.forget_models_cache()                       # the picker's "default" line follows
     if body.auto_compact_tokens is not None:
         changes["auto_compact_tokens"] = body.auto_compact_tokens
     if body.idle_compact_tokens is not None:

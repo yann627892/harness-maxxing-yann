@@ -124,6 +124,14 @@ Four ways, best first:
    account — OpenCode Zen (pay-as-you-go credits), OpenCode Go (included in a Go subscription),
    OpenRouter, or a custom gateway. See [LLM gateway](#llm-gateway).
 
+A subscription credential (1, 2 or 3) and a gateway (4) can be **connected at the same time**:
+both stay stored, and each session picks its side with its model — the picker shows the models of
+both sides (tagged *subscription* / *gateway*) and choosing a model chooses the credential its
+turns run on. Settings -> Claude then shows both connections with a test button each, a
+**default** provider selector (new sessions, session titles and Team summaries follow it — moving
+it also moves the default model to that side's Sonnet), and a remove button per side. Sessions
+created before the two were connected keep running on the side their model comes from.
+
 **Test** makes a real one-line call and shows the model and the latency.
 
 Turns start Claude without its update check, telemetry and feature-flag download (faster start, shorter prompt);
@@ -146,9 +154,9 @@ always use the newest Haiku or Sonnet.
 ## LLM gateway
 
 The **Gateway** tab of Settings -> Claude (or the onboarding) connects the Claude Code CLI to an
-**Anthropic-compatible gateway** instead of an Anthropic account: you paste the gateway's API key,
-Harness Maxxing stores it like every other credential (secrets file, root only) and points every
-`claude` process at the gateway. Usage is billed to that account.
+**Anthropic-compatible gateway**: you paste the gateway's API key, Harness Maxxing stores it like
+every other credential (secrets file, root only) and the sessions running on the gateway point
+their `claude` process at it. Usage is billed to that account.
 
 | Provider | Address | Key |
 |---|---|---|
@@ -162,11 +170,15 @@ gets `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` (the bearer credential Claude
 gateways), `ANTHROPIC_API_KEY` is left empty on purpose, and the `opus` / `sonnet` / `haiku` roles
 Claude Code asks for by name are pinned to the gateway's model ids, so background tasks (session
 titles, team summaries) ask for ids the gateway knows. The model picker lists the gateway's models
-instead of the Anthropic ones, and **Test** calls the gateway's cheapest model.
+instead of the Anthropic ones, and **Test** calls the gateway's cheapest model. A turn that runs on
+the Anthropic credentials instead gets none of those variables: only the stored token / key (or
+the CLI's own sign-in).
 
 Notes:
-- A gateway replaces the stored Anthropic token or key (one credential at a time, as before);
-  removing it in Settings -> Claude brings back "not connected".
+- The gateway and the Anthropic credentials coexist: connecting one does not remove the other,
+  and each session picks its side with its model (see [Claude authentication](#claude-authentication)).
+  Removing either in Settings -> Claude removes only that side; when nothing is left, the status
+  goes back to "not connected".
 - OpenRouter recommends Anthropic models with Claude Code (its `anthropic/…` ids): other model
   families work through the gateway's translation but are not guaranteed. The picker lists a few
   anyway (GPT, Gemini, Grok, DeepSeek, Kimi, Qwen, GLM) beside the Claude ids.

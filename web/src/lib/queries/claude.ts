@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { api } from '../api'
+import { api, withQuery } from '../api'
 import type { ClaudeAuthBody, ClaudeAuthResult, ClaudeSettingsBody, ClaudeStatus, ClaudeTestResult, Ok } from '../types'
 import { qk } from './keys'
 import { useMut } from './util'
@@ -17,11 +17,18 @@ export function useClaudeAuth() {
 }
 
 export function useClaudeAuthRemove() {
-  return useMut(() => api.del<Ok>('/api/claude/auth'), { invalidate: [qk.claude, qk.onboarding, qk.health] })
+  return useMut((kind?: 'gateway' | 'anthropic') =>
+    api.del<Ok>(withQuery('/api/claude/auth', { kind })), {
+    invalidate: [qk.claude, qk.onboarding, qk.health],
+  })
 }
 
 export function useClaudeTest() {
-  return useMut(() => api.post<ClaudeTestResult>('/api/claude/test'), { invalidate: [qk.claude], errorToast: false })
+  return useMut((provider?: 'gateway' | 'anthropic') =>
+    api.post<ClaudeTestResult>('/api/claude/test', {}, { query: { provider } }), {
+    invalidate: [qk.claude],
+    errorToast: false,
+  })
 }
 
 export function useClaudeSettings() {

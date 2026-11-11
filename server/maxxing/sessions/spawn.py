@@ -108,21 +108,40 @@ def _named_vault(names: list[str]) -> dict[str, str]:
     return out
 
 
-def auth_env(secrets: dict | None = None, keys: list[str] | None = None) -> dict[str, str]:
+def auth_env(secrets: dict | None = None, keys: list[str] | None = None,
+             provider: str | None = None) -> dict[str, str]:
     """Claude credentials stored in secrets.json + the user's vault entries flagged `expose`.
     keys: only these vault entries instead (an agent's turn sees the keys of its agent.json, nothing else).
-    A connected gateway (maxxing.gateway: OpenCode Zen / Go, OpenRouter, custom) replaces the Anthropic
-    credentials entirely: ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY deliberately empty."""
+    provider: which side this turn runs on - "gateway" (maxxing.gateway: OpenCode Zen / Go,
+    OpenRouter, custom) or "anthropic" (the stored subscription token / API key, or the CLI's own
+    sign-in when nothing is stored). None: the default provider (config `claude_provider`). Both
+    sides can be connected at once; each session picks with its model. claude_env drops a gateway
+    configured in the environment from an Anthropic turn."""
     s = secrets if secrets is not None else config.load_secrets()
     out = _exposed_vault(s) if keys is None else _named_vault(keys)
-    if str(s.get("anthropic_base_url") or ""):
+    if provider is None:
         from .. import gateway
-        return gateway.auth_env(out, s)
+        provider = gateway.default_provider(s)
+    if provider == "gateway" and str(s.get("anthropic_base_url") or ""):
+        from .. import gateway
+        return gateway.auth_env(out, s, "gateway")
     if s.get("claude_oauth_token"):
         out["CLAUDE_CODE_OAUTH_TOKEN"] = str(s["claude_oauth_token"])
     if s.get("anthropic_api_key"):
         out["ANTHROPIC_API_KEY"] = str(s["anthropic_api_key"])
     return out
+
+
+def _drop_env_gateway(env: dict[str, str], provider: str | None) -> None:
+    """An Anthropic turn must not see a gateway configured in the service environment
+    (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN) - unless nothing Anthropic is connected, where that
+    environment gateway is the only credential there is."""
+    if provider == "gateway":
+        return
+    from .. import gateway
+    if gateway.anthropic_configured():
+        env.pop("ANTHROPIC_BASE_URL", None)
+        env.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 
 def permission_args(mode: str) -> tuple[list[str], dict[str, str]]:
@@ -237,7 +256,8 @@ def _settings_file(text: str) -> Path:
     return p
 
 
-def claude_env(extra: dict | None = None, permission_mode: str = "bypass", keys: list[str] | None = None) -> dict[str, str]:
+def claude_env(extra: dict | None = None, permission_mode: str = "bypass", keys: list[str] | None = None,
+              provider: str | None = None) -> dict[str, str]:
     env = base_env()
     cfg = config.load_config()
     env.setdefault("BASH_MAX_OUTPUT_LENGTH", str(BASH_OUTPUT_MAX))
@@ -246,7 +266,11 @@ def claude_env(extra: dict | None = None, permission_mode: str = "bypass", keys:
     window = compact_window(cfg)
     if window:
         env.setdefault("CLAUDE_CODE_AUTO_COMPACT_WINDOW", str(window))
-    env.update(auth_env(keys=keys))
+    env.update(auth_env(keys=keys, provider=provider))
+    if provider is None:
+        from .. import gateway
+        provider = gateway.default_provider()
+    _drop_env_gateway(env, provider)
     env.update(permission_args(permission_mode)[1])
     env.update({str(k): str(v) for k, v in (extra or {}).items() if ENV_NAME_RE.match(str(k))})
     return env

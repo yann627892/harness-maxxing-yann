@@ -1,9 +1,9 @@
 import * as React from 'react'
-import { Globe, KeyRound, PlugZap, RefreshCw, Terminal, Trash2 } from 'lucide-react'
-import { useClaudeAuth, useClaudeAuthRemove, useClaudeStatus, useClaudeTest } from '@/lib/queries'
+import { Globe, KeyRound, PlugZap, PlusCircle, RefreshCw, Terminal, Trash2 } from 'lucide-react'
+import { useClaudeAuth, useClaudeAuthRemove, useClaudeSettings, useClaudeStatus, useClaudeTest } from '@/lib/queries'
 import { errorMessage } from '@/lib/api'
 import { fmtRelative } from '@/lib/format'
-import type { ClaudeAuthMethod, ClaudeGatewayProvider, ClaudeTestResult } from '@/lib/types'
+import type { ClaudeAuthMethod, ClaudeGatewayProvider, ClaudeProvider, ClaudeTestResult } from '@/lib/types'
 import { useLang, useT, type TKey } from '@/i18n'
 import { Badge, Button, CodeBlock, FormField, Input, SecretInput, Select, Sensitive, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, confirm } from '@/components/ui'
 import { Callout, Steps } from '../common'
@@ -24,12 +24,13 @@ const GW: { id: ClaudeGatewayProvider; label: TKey; desc: TKey; placeholder: str
 ]
 
 /** Live status line + test button. */
-export function ClaudeStatusCard({ onReplace }: { onReplace?: () => void }) {
+export function ClaudeStatusCard({ onReplace, onAdd }: { onReplace?: () => void; onAdd?: 'oauth_token' | 'gateway' }) {
   const t = useT()
   const lang = useLang()
   const { data: s, isLoading } = useClaudeStatus()
   const test = useClaudeTest()
   const remove = useClaudeAuthRemove()
+  const settings = useClaudeSettings()
   const [result, setResult] = React.useState<ClaudeTestResult | null>(null)
   if (isLoading || !s) return <Skeleton className="h-[74px] rounded-lg" />
   if (!s.installed)
@@ -38,6 +39,7 @@ export function ClaudeStatusCard({ onReplace }: { onReplace?: () => void }) {
         {t('claude.notInstalledDesc')} <CodeBlock inline code="maxxing doctor" className="mt-2" />
       </Callout>
     )
+  const dual = !!s.gateway && !!s.anthropic?.connected      // both sides: each session picks with its model
   return (
     <div className="grid gap-3">
       <Callout
@@ -71,34 +73,122 @@ export function ClaudeStatusCard({ onReplace }: { onReplace?: () => void }) {
               · <Sensitive>{s.auth.detail}</Sensitive>
             </span>
           )}
-          {s.gateway && <span className="text-muted-foreground">· {s.gateway.base_url}</span>}
+          {s.gateway && !dual && <span className="text-muted-foreground">· {s.gateway.base_url}</span>}
           {s.auth.ok && s.auth.checked_at && (
             <span className="text-muted-foreground">· {t('claude.verified', { when: fmtRelative(s.auth.checked_at, lang) })}</span>
           )}
         </span>
       </Callout>
+      {dual && (
+        <div className="grid gap-3 rounded-lg border p-4">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <Badge variant="outline">{t('cconn.anthropicSide')}</Badge>
+            {s.anthropic?.detail && <Sensitive>{s.anthropic.detail}</Sensitive>}
+            <span className="text-muted-foreground">·</span>
+            <Badge variant="outline">{s.gateway!.name}</Badge>
+            <span className="text-muted-foreground">{s.gateway!.base_url}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium">{t('cconn.defaultProvider')}</span>
+            <Select
+              value={s.default_provider || 'gateway'}
+              onValueChange={(v) => settings.mutate({ claude_provider: v as ClaudeProvider })}
+              aria-label={t('cconn.defaultProvider')}
+              options={[
+                { value: 'anthropic', label: t('cconn.anthropicSide') },
+                { value: 'gateway', label: s.gateway!.name },
+              ]}
+            />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('cconn.defaultProviderDesc')}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              loading={test.isPending}
+              onClick={() =>
+                test.mutate('anthropic', {
+                  onSuccess: setResult,
+                  onError: (e) => setResult({ ok: false, model: '', ms: 0, error: errorMessage(e) }),
+                })
+              }
+            >
+              <PlugZap /> {t('cconn.testAnthropic')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              loading={test.isPending}
+              onClick={() =>
+                test.mutate('gateway', {
+                  onSuccess: setResult,
+                  onError: (e) => setResult({ ok: false, model: '', ms: 0, error: errorMessage(e) }),
+                })
+              }
+            >
+              <PlugZap /> {t('cconn.testGateway')}
+            </Button>
+          </div>
+        </div>
+      )}
       {result && (
         <Callout tone={result.ok ? 'success' : 'error'} title={result.ok ? t('claude.testOk') : t('claude.testFailed')}>
           {result.ok ? t('claude.testOkDesc', { model: result.model, ms: Math.round(result.ms) }) : result.error}
         </Callout>
       )}
-      {s.auth.ok && onReplace && (
+      {s.auth.ok && (onReplace || onAdd) && (
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={onReplace}>
-            <RefreshCw /> {t('claude.replace')}
-          </Button>
-          {s.auth.method !== 'credentials' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              loading={remove.isPending}
-              onClick={async () => {
-                if (await confirm({ title: t('claude.removeTitle'), description: t('claude.removeDesc'), destructive: true, confirmText: t('common.remove') })) remove.mutate()
-              }}
-            >
-              <Trash2 /> {t('claude.remove')}
+          {onReplace && (
+            <Button variant="outline" size="sm" onClick={onReplace}>
+              <RefreshCw /> {t('claude.replace')}
             </Button>
+          )}
+          {onAdd && (
+            <Button variant="outline" size="sm" onClick={() => window.dispatchEvent(new CustomEvent('maxxing:add-credential', { detail: onAdd }))}>
+              <PlusCircle /> {t(onAdd === 'gateway' ? 'cconn.addGateway' : 'cconn.addAnthropic')}
+            </Button>
+          )}
+          {dual ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                loading={remove.isPending}
+                onClick={async () => {
+                  if (await confirm({ title: t('cconn.removeGwTitle'), description: t('cconn.removeGwDesc'), destructive: true, confirmText: t('common.remove') })) remove.mutate('gateway')
+                }}
+              >
+                <Trash2 /> {t('cconn.removeGateway')}
+              </Button>
+              {s.anthropic?.method !== 'credentials' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  loading={remove.isPending}
+                  onClick={async () => {
+                    if (await confirm({ title: t('cconn.removeAnTitle'), description: t('cconn.removeAnDesc'), destructive: true, confirmText: t('common.remove') })) remove.mutate('anthropic')
+                  }}
+                >
+                  <Trash2 /> {t('cconn.removeAnthropic')}
+                </Button>
+              )}
+            </>
+          ) : (
+            s.auth.method !== 'credentials' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                loading={remove.isPending}
+                onClick={async () => {
+                  if (await confirm({ title: t('claude.removeTitle'), description: t('claude.removeDesc'), destructive: true, confirmText: t('common.remove') })) remove.mutate()
+                }}
+              >
+                <Trash2 /> {t('claude.remove')}
+              </Button>
+            )
           )}
         </div>
       )}
@@ -108,9 +198,9 @@ export function ClaudeStatusCard({ onReplace }: { onReplace?: () => void }) {
 
 /** Paste a `claude setup-token` OAuth token, an Anthropic API key, or a gateway key (OpenCode Zen /
  *  Go, OpenRouter, custom Anthropic-compatible endpoint), then the server tests it. */
-export function ClaudeAuthForm({ onDone }: { onDone?: () => void }) {
+export function ClaudeAuthForm({ onDone, initialKind }: { onDone?: () => void; initialKind?: 'oauth_token' | 'api_key' | 'gateway' }) {
   const t = useT()
-  const [kind, setKind] = React.useState<'oauth_token' | 'api_key' | 'gateway'>('oauth_token')
+  const [kind, setKind] = React.useState<'oauth_token' | 'api_key' | 'gateway'>(initialKind || 'oauth_token')
   const [provider, setProvider] = React.useState<ClaudeGatewayProvider>('zen')
   const [baseUrl, setBaseUrl] = React.useState('')
   const [value, setValue] = React.useState('')
@@ -234,20 +324,29 @@ export function ClaudeAuthForm({ onDone }: { onDone?: () => void }) {
   )
 }
 
-/** Status + (form when not connected or when replacing). */
+/** Status + (form when not connected or when adding / replacing). */
 export function ClaudeConnect() {
   const t = useT()
   const { data: s } = useClaudeStatus()
   const [replacing, setReplacing] = React.useState(false)
-  const showForm = !!s && s.installed && (!s.auth.ok || replacing)
+  const [adding, setAdding] = React.useState<null | 'oauth_token' | 'gateway'>(null)
+  React.useEffect(() => {
+    const open = (ev: Event) => setAdding((ev as CustomEvent).detail)
+    window.addEventListener('maxxing:add-credential', open)
+    return () => window.removeEventListener('maxxing:add-credential', open)
+  }, [])
+  const gwOn = !!s?.gateway
+  const anOn = !!s?.anthropic?.connected
+  const add: null | 'oauth_token' | 'gateway' = !s?.installed || (gwOn && anOn) ? null : anOn ? 'gateway' : gwOn ? 'oauth_token' : null
+  const showForm = !!s && s.installed && (!s.auth.ok || replacing || !!adding)
   return (
     <div className="grid gap-5">
-      <ClaudeStatusCard onReplace={replacing ? undefined : () => setReplacing(true)} />
+      <ClaudeStatusCard onReplace={replacing || adding ? undefined : () => setReplacing(true)} onAdd={add || undefined} />
       {showForm && (
         <div className="rounded-lg border p-4 md:p-5">
-          <ClaudeAuthForm onDone={() => setReplacing(false)} />
-          {replacing && (
-            <Button variant="ghost" size="sm" className="mt-3" onClick={() => setReplacing(false)}>
+          <ClaudeAuthForm key={adding || 'replace'} initialKind={adding || undefined} onDone={() => { setReplacing(false); setAdding(null) }} />
+          {(replacing || adding) && (
+            <Button variant="ghost" size="sm" className="mt-3" onClick={() => { setReplacing(false); setAdding(null) }}>
               {t('common.cancel')}
             </Button>
           )}

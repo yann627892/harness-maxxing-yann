@@ -185,6 +185,7 @@ class Runner:
         self.stop_flag = threading.Event()
         self.lock = threading.RLock()                  # re-entrant: signal handlers run on the main thread
         self.turn_id = ""                              # id of the turn in progress (meta turn_id)
+        self.provider: str | None = None              # the credential side of the turn in progress
         self.current: dict | None = None               # queue item of the turn in progress
         self.voice_wait = False                        # waiting for the transcript of a voice message (_voice)
         self.interrupted = False                       # the current turn was cut short by a steer
@@ -397,6 +398,8 @@ class Runner:
         env = meta.get("env") or {}
         agent = agents.run_settings(meta.get("path") or "", env.get("MAXXING_AGENT_OUTSIDE") == "1",
                                     session=self.sid, group=str(env.get("MAXXING_AGENT_GROUP") or ""))
+        from maxxing import gateway                     # which side this session's turns run on
+        self.provider = gateway.provider_of(meta)
         model = (meta.get("model") or agent.get("model") or cfg.get("default_model") or "").strip()
         approval: list[str] = []                        # the agent asks before risky tools: Allow / Deny in the UI
         ask = mode == "ask"                             # the topic's mode `ask`: the same, for any session
@@ -429,7 +432,7 @@ class Runner:
         base += agent.get("args") or []
         from maxxing import pcbridge                    # not at import: the runner starts with stdlib-only modules
         base += pcbridge.mcp_config_args() + mcp_plan.args + approval
-        env = spawn.claude_env(meta.get("env") or {}, mode, agent.get("keys") if agent else None)
+        env = spawn.claude_env(meta.get("env") or {}, mode, agent.get("keys") if agent else None, self.provider)
         env["MAXXING_SESSION"] = self.sid               # `maxxing mcp load` run by the turn finds its session
         text = (PLAN_PREFACE if plan else "") + build_prompt(item)
         root = Path(cfg.get("workspace") or "/").resolve()
@@ -803,9 +806,9 @@ class Runner:
             auth_err = _auth_error(a, ok)
             if auth_err:
                 err = auth_err
-                claude_auth.record(False, auth_err, "turn")
+                claude_auth.record(False, auth_err, "turn", self.provider)
             elif ok and a.result is not None:
-                claude_auth.record(True, None, "turn")
+                claude_auth.record(True, None, "turn", self.provider)
         cost = a.turn_cost if a.turn_cost is not None else res.get("total_cost_usd")
         with store.edit(self.sid) as m:
             if a.thread_total is not None and a.csid:

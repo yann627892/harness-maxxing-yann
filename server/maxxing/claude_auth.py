@@ -51,11 +51,9 @@ def plan_name(creds: object = None) -> str | None:
     return {"pro": "Pro", "max": "Max", "team": "Team", "enterprise": "Enterprise", "free": "Free"}.get(sub)
 
 
-def auth_method() -> tuple[str | None, str]:
-    """(method, detail) without any network call."""
-    if config.get_secret("anthropic_base_url"):
-        from . import gateway
-        return "gateway", gateway.describe()
+def anthropic_method() -> tuple[str | None, str]:
+    """(method, detail) of the Anthropic credentials alone (no gateway): the stored subscription
+    token, the stored API key, or the CLI's own sign-in."""
     if config.get_secret("claude_oauth_token"):
         return "oauth_token", "Long-lived token stored in Harness Maxxing"
     if config.get_secret("anthropic_api_key"):
@@ -65,6 +63,15 @@ def auth_method() -> tuple[str | None, str]:
         sub = plan_name()
         return "credentials", "Signed in with `claude` on this server" + (f" ({sub} plan)" if sub else "")
     return None, "Not connected"
+
+
+def auth_method() -> tuple[str | None, str]:
+    """(method, detail) of the DEFAULT provider: config `claude_provider` ("gateway" |
+    "anthropic"), else the gateway when both sides are connected. See gateway.default_provider."""
+    from . import gateway
+    if gateway.default_provider() == "gateway":
+        return "gateway", gateway.describe()
+    return anthropic_method()
 
 
 def detect(text: str | None) -> str | None:
@@ -88,10 +95,17 @@ def last() -> dict:
     return d if isinstance(d, dict) else {}
 
 
-def record(ok: bool, error: str | None = None, source: str = "turn") -> None:
-    """Remember the outcome of a real call (atomic, safe across processes)."""
+def record(ok: bool, error: str | None = None, source: str = "turn", provider: str | None = None) -> None:
+    """Remember the outcome of a real call (atomic, safe across processes). `provider`: the side
+    the call ran on ("gateway" | "anthropic"); None = the default provider."""
+    if provider == "gateway":
+        method = "gateway"
+    elif provider == "anthropic":
+        method = anthropic_method()[0]
+    else:
+        method = auth_method()[0]
     data = {"ok": bool(ok), "at": time.time(), "error": None if ok else (error or "unknown error")[:400],
-            "source": source, "method": auth_method()[0]}
+            "source": source, "method": method}
     p = state_file()
     try:
         p.parent.mkdir(parents=True, exist_ok=True)

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { useT } from '@/i18n'
 import { useClaudeStatus } from '@/lib/queries'
 import { Badge, confirm, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, StatusDot, Tooltip } from '@/components/ui'
-import type { Session } from '@/lib/types'
+import type { ClaudeModel, ClaudeProvider, Session } from '@/lib/types'
 import { contextWindow, fmtTokens, modelLabel } from './util'
 
 /** Family aliases follow resolved versions; pinned model ids still compare exactly. */
@@ -18,6 +18,7 @@ const SWITCH_WARN_TOKENS = 50_000
 
 export function ModelPicker({
   chosen,
+  chosenProvider,
   real,
   contextTokens,
   onChange,
@@ -26,17 +27,21 @@ export function ModelPicker({
 }: {
   /** Model chosen for the next turns ("" = default). */
   chosen: string
+  /** Provider of that model (unset = the session predates the choice / follows the default). */
+  chosenProvider?: ClaudeProvider | null
   /** Model that answered the last turn (null before the first answer). */
   real?: string | null
   /** Context of the last turn: a switch above SWITCH_WARN_TOKENS asks first. */
   contextTokens?: number | null
-  onChange: (model: string) => void
+  /** provider: the credential the chosen model's turns run on; "" (the default row) follows the default provider. */
+  onChange: (model: string, provider?: '' | ClaudeProvider) => void
   disabled?: boolean
   compact?: boolean
 }) {
   const t = useT()
   const { data } = useClaudeStatus()
   const models = data?.models || []
+  const dual = new Set(models.map((m) => m.provider)).size > 1      // both credentials connected
   const def = data?.default_model || ''
   const next = chosen || def
   const shown = real || next
@@ -47,7 +52,7 @@ export function ModelPicker({
     : real
       ? t('sessions.model.answered', { model: modelLabel(real, models) })
       : t('sessions.model.next', { model: next ? modelLabel(next, models) : t('sessions.model.default') })
-  const pick = async (model: string) => {
+  const pick = async (model: string, provider?: '' | ClaudeProvider) => {
     const target = model || def
     const ctx = contextTokens ?? 0
     if (real && target && ctx >= SWITCH_WARN_TOKENS && !matchesModel(real, target)) {
@@ -58,9 +63,13 @@ export function ModelPicker({
       })
       if (!ok) return
     }
-    onChange(model)
+    onChange(model, provider)
   }
-  const options = models.some((m) => m.id === chosen) || !chosen ? models : [...models, { id: chosen, label: modelLabel(chosen) }]
+  const isChosen = (m: ClaudeModel) =>
+    chosen === m.id && (!dual || !chosenProvider || chosenProvider === (m.provider ?? 'gateway'))
+  const options = models.some((m) => m.id === chosen) || !chosen
+    ? models
+    : [...models, { id: chosen, label: modelLabel(chosen), provider: chosenProvider ?? undefined }]
   return (
     <DropdownMenu>
       <Tooltip content={tip}>
@@ -90,15 +99,20 @@ export function ModelPicker({
           {real ? t('sessions.model.answered', { model: modelLabel(real, models) }) : t('sessions.model.nextTurn')}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => void pick('')}>
+        <DropdownMenuItem onSelect={() => void pick('', '')}>
           <span className="flex size-4 items-center justify-center">{!chosen && <Check className="!text-foreground" />}</span>
           <span className="flex-1">{t('sessions.model.default')}</span>
           {def && <span className="text-xs text-muted-foreground">{modelLabel(def, models)}</span>}
         </DropdownMenuItem>
         {options.map((m) => (
-          <DropdownMenuItem key={m.id} onSelect={() => void pick(m.id)}>
-            <span className="flex size-4 items-center justify-center">{chosen === m.id && <Check className="!text-foreground" />}</span>
+          <DropdownMenuItem key={`${m.id}|${m.provider ?? ''}`} onSelect={() => void pick(m.id, m.provider)}>
+            <span className="flex size-4 items-center justify-center">{isChosen(m) && <Check className="!text-foreground" />}</span>
             <span className="flex-1">{m.label || modelLabel(m.id)}</span>
+            {dual && (
+              <span className="text-[10px] text-muted-foreground">
+                {m.provider === 'anthropic' ? t('sessions.model.viaAnthropic') : t('sessions.model.viaGateway')}
+              </span>
+            )}
             {real === m.id && <span className="text-[10px] text-muted-foreground">{t('sessions.model.lastUsed')}</span>}
           </DropdownMenuItem>
         ))}

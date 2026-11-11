@@ -40,6 +40,14 @@ def _check_model(model: str | None) -> str:
     if model and not _MODEL_ID.fullmatch(model):
         raise SessionError(400, "bad_model", "Invalid model id")
     return model
+
+
+def _check_provider(provider: str | None) -> str:
+    """The provider of a session's turns ("gateway" | "anthropic"); "" = follow the default."""
+    p = (provider or "").strip().lower()
+    if p and p not in ("anthropic", "gateway"):
+        raise SessionError(400, "bad_provider", "Invalid provider (anthropic or gateway)")
+    return p
 _WINDOW_RE = re.compile(rb'"(claude-[a-z0-9.-]+)"\s*:\s*\{[^{}]*?"contextWindow"\s*:\s*(\d+)')
 
 
@@ -309,9 +317,11 @@ def create_session(path: str, message: str | None = None, title: str | None = No
                    source: str = "web", notify: bool = False, cron: bool = False,
                    env: dict | None = None, timeout_s: int | None = None, plan_mode: bool = False,
                    permission_mode: str = "", auto_title: bool = False, voice_path: str | None = None,
-                   client_id: str | None = None, silent_ok: bool = False) -> dict:
+                   client_id: str | None = None, silent_ok: bool = False,
+                   provider: str | None = None) -> dict:
     """`auto_title`: `title` was made from the first message by the caller (Telegram) - still worth a short title.
-    `silent_ok`: a scheduled job that reports every run - its turn may answer [SILENT] (runner, spawn.CRON_SILENT)."""
+    `silent_ok`: a scheduled job that reports every run - its turn may answer [SILENT] (runner, spawn.CRON_SILENT).
+    `provider`: the credential its turns use (gateway | anthropic); "" = the default provider."""
     try:
         p = workspace.normalize_path(path)
         workspace.topic_dir(p)
@@ -321,9 +331,12 @@ def create_session(path: str, message: str | None = None, title: str | None = No
     audio = _check_voice(voice_path)
     given = (title or "").strip()[:120]
     model = _check_model(model)
+    prov = _check_provider(provider)
     meta = store.new_meta(p, given or _default_title(p, message), model=model or "",
                           source=source, notify=notify, cron=cron, env=env, timeout_s=timeout_s, plan_mode=plan_mode,
                           permission_mode=permission_mode)
+    if prov:
+        meta["provider"] = prov
     automatic, has_text = auto_title or not given, bool((message or "").strip())
     if automatic and not has_text:
         meta["title_auto"] = meta["title"]       # short title on the first message (titles.first_message)
@@ -582,10 +595,11 @@ def _signal(pid: int, sig: int) -> None:
 def update_session(sid: str, title: str | None = None, model: str | None = None,
                    archived: bool | None = None, notify: bool | None = None,
                    plan_mode: bool | None = None, favorite: bool | None = None,
-                   path: str | None = None) -> dict:
+                   path: str | None = None, provider: str | None = None) -> dict:
     cur = _require(sid)
     if model is not None:
         model = _check_model(model)
+    prov = _check_provider(provider) if provider is not None else None
     if path is not None:
         move_session(sid, path, cur)
     with store.edit(sid) as m:
@@ -593,6 +607,11 @@ def update_session(sid: str, title: str | None = None, model: str | None = None,
             m["title"] = title.strip()[:120]
         if model is not None:
             m["model"] = model
+        if prov is not None:
+            if prov:
+                m["provider"] = prov
+            else:
+                m.pop("provider", None)          # back to the default provider
         if archived is not None:
             m["archived"] = bool(archived)
         if notify is not None:
@@ -1057,20 +1076,40 @@ def forget_models_cache() -> None:
 
 
 def models() -> list[dict]:
-    """The newest model of each family (claude_models, read from Anthropic once a day) + ids seen in session
-    logs (cached 60 s; each pass reads only what was appended). A connected gateway (maxxing.gateway)
-    puts its ids first, instead of the Anthropic ones."""
+    """The models of the picker: the newest of each family (claude_models, read from Anthropic once
+    a day) + ids seen in session logs (cached 60 s; each pass reads only what was appended). A
+    connected gateway (maxxing.gateway) puts its ids first, instead of the Anthropic ones - and
+    when the Anthropic credentials are connected as well, the picker lists both sides, each entry
+    carrying the provider of its turns ("gateway" | "anthropic"): choosing a model chooses the
+    credential too."""
     global _models_cache
     if time.time() - _models_cache[0] < 60:
         return _models_cache[1]
-    seen = set(claude_models.latest())
+    gw, dual, fallback = None, False, "anthropic"
     try:
         from .. import gateway
         gw = gateway.configured()
-        if gw:                                    # gateway ids replace the Anthropic built-ins
-            seen = set(gateway.model_ids(gw))
+        dual = bool(gw) and gateway.anthropic_configured()
+        fallback = gateway.default_provider()
     except ImportError:
         pass
+    gw_ids = set(gateway.model_ids(gw)) if gw else set()          # the picker's gateway ids
+    served = set(gateway.served_ids(gw)) if gw else set()         # the ids the gateway really serves
+    anth_ids = set(claude_models.latest())
+    entries: set[tuple[str, str]]
+    if gw and not dual:                     # the gateway replaces the Anthropic built-ins
+        entries = {(m, "gateway") for m in gw_ids}
+    else:
+        entries = {(m, "anthropic") for m in anth_ids}
+        if dual:                            # both sides connected: the picker lists both
+            entries |= {(m, "gateway") for m in served}
+
+    def tag(i: str) -> str:
+        """The provider of an id seen in a session log: its side when known, else the default."""
+        if not dual:                        # one side connected: everything runs on it
+            return "gateway" if gw else "anthropic"
+        return "gateway" if i in served else "anthropic" if i in anth_ids else fallback
+
     windows: dict = {}
     for sid in store.list_ids():
         try:
@@ -1086,7 +1125,8 @@ def models() -> list[dict]:
                 ids = ids | {m.decode() for m in _MODEL_RE.findall(tail)}
                 windows.update({k.decode(): {"contextWindow": int(v)} for k, v in _WINDOW_RE.findall(tail)})
                 _models_seen[sid] = (st.st_ino, st.st_size, ids)
-            seen |= ids
+            for i in ids:                   # an id seen in a log joins the side it belongs to
+                entries.add((i, tag(i)))
         except OSError:
             pass
     if windows:
@@ -1098,7 +1138,8 @@ def models() -> list[dict]:
         v = [int(x) for x in parts[2:] if x.isdigit() and len(x) < 4][:3] + [0, 0, 0]
         return (fam.get(parts[1] if len(parts) > 1 else "", 9), [-x for x in v[:3]], mid)
     windows = store.known_windows()
-    out = [{"id": m, "label": _label(m), "context_window": windows.get(m)} for m in sorted(seen, key=key)]
+    out = [{"id": m, "label": _label(m), "provider": p, "context_window": windows.get(m)}
+           for m, p in sorted(entries, key=lambda e: (*key(e[0]), e[1]))]
     _models_cache = (time.time(), out)
     return out
 
