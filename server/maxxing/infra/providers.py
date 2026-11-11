@@ -65,6 +65,9 @@ def cf_api() -> str:
     return os.environ.get("MAXXING_CLOUDFLARE_API", "https://api.cloudflare.com/client/v4").rstrip("/")
 
 
+_AUTH_CODES = frozenset((10000, 10001, 9109))    # authentication error, unauthorized, invalid token
+
+
 class _CF:
     def __init__(self, token: str):
         self.c = httpx.Client(timeout=TIMEOUT, headers={"Authorization": f"Bearer {token}", "User-Agent": "harness-maxxing"})
@@ -75,12 +78,15 @@ class _CF:
             body = r.json()
         except ValueError:
             raise ProviderError("bad_response", f"Cloudflare answered {r.status_code}") from None
-        if r.status_code in (401, 403) or (not body.get("success") and any(e.get("code") in (10000, 9109, 10001)
-                                                                            for e in body.get("errors") or [])):
-            raise ProviderError("missing_permission", "the Cloudflare token has no read access to this")
+        errs = body.get("errors") or []
+        msg = "; ".join(str(e.get("message")) for e in errs)
+        auth = any(e.get("code") in _AUTH_CODES for e in errs)
+        # a token refused for this resource lacks the right; any other refusal (R2 not enabled, a product or plan
+        # off) is the API's own answer - reported as it is, not as a permission the user would add for nothing
+        if r.status_code == 401 or (r.status_code == 403 and (not errs or auth)) or (not body.get("success") and auth):
+            raise ProviderError("missing_permission", (msg or "the Cloudflare token has no read access to this")[:200])
         if not body.get("success"):
-            msg = "; ".join(str(e.get("message")) for e in body.get("errors") or []) or f"HTTP {r.status_code}"
-            raise ProviderError("api_error", msg[:200])
+            raise ProviderError("api_error", (msg or f"HTTP {r.status_code}")[:200])
         return body
 
     def all(self, path: str, per_page: int = 100, limit: int = 2000) -> list:
@@ -186,6 +192,7 @@ def cloudflare() -> dict:
                             for r in recs if r.get("type") in ("A", "AAAA", "CNAME")]
             except ProviderError as e:
                 z["dns_error"] = e.code
+                z["dns_message"] = e.message
             except _ODD:
                 z["dns_error"] = "unreachable"
             try:

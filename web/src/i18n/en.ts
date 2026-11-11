@@ -1648,7 +1648,7 @@ export const en = {
   'infra.src.notRead#one': '{count} VPS not read yet',
   'infra.src.notRead': '{count} VPS not read yet',
   'infra.src.fixRights': 'Add these rights',
-  'infra.src.missing': 'The token cannot read: {list}',
+  'infra.src.missing': 'Sections in error: {list}',
   'infra.src.addKey': 'Add the key {key}',
   'infra.src.hostinger': 'Domains and their expiry date, VPS, DNS zones',
   'infra.src.cloudflare': 'Domains and DNS, Workers, Pages, R2 buckets, D1 databases',

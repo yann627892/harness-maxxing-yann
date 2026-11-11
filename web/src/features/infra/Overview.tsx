@@ -89,7 +89,8 @@ export function SourcesPanel({ v, all, onServers }: { v: InfraView; all: InfraRe
   const servers = Object.entries(v.sources.servers || {})
   const notRead = all.filter((r) => r.kind === 'server' && r.details.not_connected)
   const provider = (name: 'cloudflare' | 'hostinger', s?: InfraSource) => {
-    const missing = Object.entries(s?.sections || {}).filter(([, x]) => x && x !== 'ok').map(([k]) => tDyn(t, `infra.section.${k}`, k))
+    const missing = Object.entries(s?.sections || {}).filter(([, x]) => x && x !== 'ok')
+      .map(([k]) => ({ label: tDyn(t, `infra.section.${k}`, k), message: s?.messages?.[k] }))
     const label = name === 'cloudflare' ? 'Cloudflare' : 'Hostinger'
     if (!s?.connected)
       return (
@@ -110,7 +111,12 @@ export function SourcesPanel({ v, all, onServers }: { v: InfraView; all: InfraRe
         )}
         {missing.length > 0 && (
           <>
-            <span className="text-warning">{t('infra.src.missing', { list: missing.join(', ') })}</span>
+            <span className="text-warning">{t('infra.src.missing', { list: missing.map((m) => m.label).join(', ') })}</span>
+            {missing.some((m) => m.message) && (
+              <span className="basis-full text-xs text-muted-foreground">
+                {missing.filter((m) => m.message).map((m) => `${m.label}: ${m.message}`).join(' · ')}
+              </span>
+            )}
             <a href={PROVIDER_LINKS[name]} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-primary hover:underline pointer-coarse:min-h-10">
               {t('infra.src.fixRights')} <ArrowUpRight className="size-3" />
             </a>

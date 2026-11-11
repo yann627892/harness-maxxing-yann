@@ -1633,7 +1633,7 @@ export const fr: Record<keyof typeof en, string> = {
   'infra.src.notRead#one': '{count} VPS pas encore lu',
   'infra.src.notRead': '{count} VPS pas encore lus',
   'infra.src.fixRights': 'Ajouter ces droits',
-  'infra.src.missing': 'Le jeton ne peut pas lire : {list}',
+  'infra.src.missing': 'Sections en défaut : {list}',
   'infra.src.addKey': 'Ajouter la clé {key}',
   'infra.src.hostinger': 'Domaines et leur date d’expiration, VPS, zones DNS',
   'infra.src.cloudflare': 'Domaines et DNS, Workers, Pages, buckets R2, bases D1',

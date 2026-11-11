@@ -164,17 +164,44 @@ def test_providers_with_fake_apis(org, monkeypatch):
         vault.put("HOSTINGER_API_TOKEN", "h-tok")
         c = providers.cloudflare()
         assert c["workers"][0]["name"] == "api" and c["r2"][0]["public"] == ["https://cdn.example.com"]
-        assert c["pages"] == {"error": "missing_permission", "message": "the Cloudflare token has no read access to this"}
+        assert c["pages"] == {"error": "missing_permission", "message": "Authentication error"}
         assert c["zones"][0]["dns_error"] == "missing_permission"                     # one section, not the whole provider
+        assert c["zones"][0]["dns_message"] == "Authentication error"
         h = providers.hostinger()
         assert h["vps"][0]["ips"] == ["198.51.100.9"]
         assert h["domains"][0]["dns"] == [{"type": "A", "name": "example.org", "content": "198.51.100.9"}]
         state = infra._source_state(c, h)
         assert state["cloudflare"]["sections"]["dns"] == "missing_permission"
         assert state["cloudflare"]["sections"]["workers"] == "ok"
+        assert state["cloudflare"]["messages"]["pages"] == "Authentication error"
     finally:
         a.close()
         b.close()
+
+
+def test_cloudflare_403_that_is_not_an_auth_problem_keeps_the_api_message(org, monkeypatch):
+    """A 403 whose code is not an authentication one (e.g. R2 not enabled) is the API's own answer, not a
+    missing permission the user would add for nothing."""
+    def cf(method, path, headers, body):
+        if path == "/accounts":
+            return 200, {"success": True, "result": [{"id": "acc"}]}, "application/json"
+        if path.startswith("/accounts/acc/r2/buckets"):
+            return 403, {"success": False, "errors": [{"code": 10042, "message": "Please enable R2 through the Cloudflare Dashboard."}]}, "application/json"
+        if path == "/zones" or path.startswith("/zones?"):
+            return 200, {"success": True, "result": [], "result_info": {"total_pages": 1}}, "application/json"
+        return 200, {"success": True, "result": []}, "application/json"
+    a = _Server(cf)
+    try:
+        monkeypatch.setenv("MAXXING_CLOUDFLARE_API", a.url)
+        vault.put("CLOUDFLARE_API_TOKEN", "cf-tok")
+        vault.put("CLOUDFLARE_ACCOUNT_ID", "acc")
+        c = providers.cloudflare()
+        assert c["r2"] == {"error": "api_error", "message": "Please enable R2 through the Cloudflare Dashboard."}
+        state = infra._source_state(c, {"connected": False})
+        assert state["cloudflare"]["sections"]["r2"] == "api_error"
+        assert state["cloudflare"]["messages"]["r2"] == "Please enable R2 through the Cloudflare Dashboard."
+    finally:
+        a.close()
 
 
 def test_url_checks():

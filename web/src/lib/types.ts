@@ -1117,6 +1117,7 @@ export type InfraSource = {
   key: string | null
   error?: string | null
   sections?: Record<string, string | null>
+  messages?: Record<string, string>
   /** hosting platforms (server/maxxing/infra/platforms.py) */
   label?: string
   beta?: boolean

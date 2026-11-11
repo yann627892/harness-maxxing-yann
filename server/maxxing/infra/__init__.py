@@ -345,12 +345,25 @@ def _source_state(cf: dict, hst: dict) -> dict:
             v = d.get(k)
             out[k] = v.get("error") if isinstance(v, dict) and v.get("error") else ("ok" if v is not None else None)
         return out
+
+    def messages(d: dict, keys: tuple[str, ...]) -> dict:
+        out = {}
+        for k in keys:
+            v = d.get(k)
+            if isinstance(v, dict) and v.get("error") and v.get("message"):
+                out[k] = str(v["message"])[:200]
+        return out
+    keys = ("zones", "workers", "worker_domains", "pages", "r2", "d1", "registrar")
     cfs = {"connected": cf.get("connected", False), "key": cf.get("key"), "error": cf.get("error")}
     if cf.get("connected") and not cf.get("error"):
-        cfs["sections"] = sections(cf, ("zones", "workers", "worker_domains", "pages", "r2", "d1", "registrar"))
+        cfs["sections"] = sections(cf, keys)
+        cfs["messages"] = messages(cf, keys)
         zs = cf.get("zones") if isinstance(cf.get("zones"), list) else []
         if any(z.get("dns_error") for z in zs):
-            cfs["sections"]["dns"] = next(z["dns_error"] for z in zs if z.get("dns_error"))
+            z = next(z for z in zs if z.get("dns_error"))
+            cfs["sections"]["dns"] = z["dns_error"]
+            if z.get("dns_message"):
+                cfs["messages"]["dns"] = str(z["dns_message"])[:200]
         elif zs:
             cfs["sections"]["dns"] = "ok"
     hs = {"connected": hst.get("connected", False), "key": hst.get("key")}

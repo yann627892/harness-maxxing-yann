@@ -588,7 +588,7 @@ unless public (no DNS rebinding to a local address). `team_insecure` / MAXXING_T
   `databases` (native postgres via `runuser -u postgres -- psql`, docker postgres via `docker exec psql -U
   <POSTGRES_USER>`, mysql by socket, redis/mongo listed, SQLite by magic bytes under roots with a 6 s budget),
   `buckets` (Garage admin API v2 with the token of /etc/garage.toml).
-- `providers.py`: Cloudflare (`_CF.get/all`, a 10000/9109 error -> `missing_permission` for that section only;
+- `providers.py`: Cloudflare (`_CF.get/all`, a 401/403 whose code is 10000/10001/9109 -> `missing_permission` for that section only, with the API's own message; any other 403 is `api_error` with the API's message, e.g. R2 not enabled), Hostinger (`missing_permission`);
   DNS per zone; `cf_point(host, ip)` creates an A/AAAA, DNS only), Hostinger (`/api/domains/v1/portfolio`,
   `/api/vps/v1/virtual-machines`, `/api/dns/v1/zones/<d>`), RDAP. Bases: MAXXING_CLOUDFLARE_API,
   MAXXING_HOSTINGER_API, MAXXING_RDAP_API.
