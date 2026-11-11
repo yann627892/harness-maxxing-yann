@@ -205,6 +205,61 @@ class DomainIn(_Text):
     name: str
 
 
+class ExecIn(_Text):
+    target: str = "local"            # "local" (this server) or "server:<name>"
+    command: str
+    timeout_s: int = 30
+
+
+def _run_local(command: str, timeout_s: int) -> dict:
+    import subprocess, time
+    t0 = time.monotonic()
+    try:
+        r = subprocess.run(["bash", "-c", command], capture_output=True, text=True, timeout=timeout_s, errors="replace")
+        return {"stdout": r.stdout, "stderr": r.stderr, "exit_code": r.returncode,
+                "duration_ms": int((time.monotonic() - t0) * 1000)}
+    except subprocess.TimeoutExpired as e:
+        return {"stdout": e.stdout or "", "stderr": (e.stderr or "") + f"\ntimed out after {timeout_s}s",
+                "exit_code": 124, "duration_ms": int((time.monotonic() - t0) * 1000)}
+    except OSError as e:
+        return {"stdout": "", "stderr": f"ssh: {e}", "exit_code": 127, "duration_ms": 0}
+
+
+def _run_remote(s: dict, command: str, timeout_s: int) -> dict:
+    import subprocess, time
+    from ..infra import connect
+    t0 = time.monotonic()
+    try:
+        r = subprocess.run(connect.ssh_command(s, command), capture_output=True, text=True, timeout=timeout_s, errors="replace")
+    except subprocess.TimeoutExpired as e:
+        return {"stdout": e.stdout or "", "stderr": (e.stderr or "") + f"\ntimed out after {timeout_s}s",
+                "exit_code": 124, "duration_ms": int((time.monotonic() - t0) * 1000)}
+    except OSError as e:
+        return {"stdout": "", "stderr": f"ssh: {e}", "exit_code": 127, "duration_ms": 0}
+    return {"stdout": r.stdout, "stderr": r.stderr, "exit_code": r.returncode,
+            "duration_ms": int((time.monotonic() - t0) * 1000)}
+
+
+@router.post("/exec")
+async def exec_command(body: ExecIn):
+    _need_on()
+    cmd = (body.command or "").strip()
+    if not cmd:
+        raise HTTPException(400, detail={"error": "bad_command", "message": "command required"})
+    if len(cmd) > 4000:
+        raise HTTPException(400, detail={"error": "bad_command", "message": "command too long (4000 characters max)"})
+    timeout_s = max(5, min(120, int(body.timeout_s or 30)))
+    if body.target == "local":
+        return await asyncio.to_thread(_run_local, cmd, timeout_s)
+    if body.target.startswith("server:"):
+        name = body.target[len("server:"):]
+        s = await asyncio.to_thread(registry.get_server, name)
+        if not s:
+            raise HTTPException(404, detail={"error": "not_found", "message": f"no server named {name}"})
+        return await asyncio.to_thread(_run_remote, s, cmd, timeout_s)
+    raise HTTPException(400, detail={"error": "bad_target", "message": "target must be 'local' or 'server:<name>'"})
+
+
 @router.post("/domains")
 async def add_domain(body: DomainIn):
     _need_on()

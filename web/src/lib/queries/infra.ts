@@ -42,3 +42,8 @@ export function useInfraDomainAdd() {
 export function useInfraDomainRemove() {
   return useMut((b: { name: string }) => api.post('/api/infra/domains/remove', b), { invalidate: [infraKeys.all] })
 }
+export type InfraExecIn = { target: string; command: string; timeout_s?: number }
+export type InfraExecOut = { stdout: string; stderr: string; exit_code: number; duration_ms: number }
+export function useInfraExec() {
+  return useMut((b: InfraExecIn) => api.post<InfraExecOut>('/api/infra/exec', b))
+}

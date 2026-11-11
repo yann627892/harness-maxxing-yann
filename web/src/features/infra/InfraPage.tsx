@@ -21,6 +21,7 @@ import { KIND_ICON, STATUS_TONE, locationLabel, providerName, rememberServers, s
 import { MixBar, PlaceIcon, PlaceName, PlaceTag, ResourceRow, TypeView, placeCounts } from './TypeView'
 import { placeInfo, placeOf } from './places'
 import { AddDomain, AddServer, ConnectVps, RemoveDomain, ServerSettings } from './ServerConnect'
+import { RunCommand } from './RunCommand'
 import { HowItWorks, ServerCard, SourcesPanel, useHowItWorks } from './Overview'
 import { MailInfra } from './MailInfra'
 
@@ -570,6 +571,7 @@ export default function InfraPage() {
       actions={
         <>
           <AddServer />
+          <RunCommand />
           <Button variant="outline" size="sm" loading={refresh.isPending || !!v?.refreshing} onClick={() => refresh.mutate()} data-testid="infra-refresh">
             <RefreshCw /> <span className="max-[429px]:sr-only">{v?.refreshing ? t('infra.refreshing') : t('infra.refresh')}</span>
           </Button>
