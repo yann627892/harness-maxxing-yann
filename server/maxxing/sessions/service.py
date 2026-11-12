@@ -43,10 +43,13 @@ def _check_model(model: str | None) -> str:
 
 
 def _check_provider(provider: str | None) -> str:
-    """The provider of a session's turns ("gateway" | "anthropic"); "" = follow the default."""
+    """The provider of a session's turns ("anthropic" | "gateway:<id>"); "" = follow the default.
+    The bare "gateway" of older clients/sessions still means the default gateway."""
     p = (provider or "").strip().lower()
-    if p and p not in ("anthropic", "gateway"):
-        raise SessionError(400, "bad_provider", "Invalid provider (anthropic or gateway)")
+    if p and p != "anthropic":
+        from .. import gateway
+        if not gateway.is_gateway(p) or not gateway.get(p):
+            raise SessionError(400, "bad_provider", "Invalid provider (anthropic or gateway:<id>)")
     return p
 _WINDOW_RE = re.compile(rb'"(claude-[a-z0-9.-]+)"\s*:\s*\{[^{}]*?"contextWindow"\s*:\s*(\d+)')
 
@@ -321,7 +324,7 @@ def create_session(path: str, message: str | None = None, title: str | None = No
                    provider: str | None = None) -> dict:
     """`auto_title`: `title` was made from the first message by the caller (Telegram) - still worth a short title.
     `silent_ok`: a scheduled job that reports every run - its turn may answer [SILENT] (runner, spawn.CRON_SILENT).
-    `provider`: the credential its turns use (gateway | anthropic); "" = the default provider."""
+    `provider`: the credential its turns use (gateway:<id> | anthropic); "" = the default provider."""
     try:
         p = workspace.normalize_path(path)
         workspace.topic_dir(p)
@@ -1077,38 +1080,45 @@ def forget_models_cache() -> None:
 
 def models() -> list[dict]:
     """The models of the picker: the newest of each family (claude_models, read from Anthropic once
-    a day) + ids seen in session logs (cached 60 s; each pass reads only what was appended). A
-    connected gateway (maxxing.gateway) puts its ids first, instead of the Anthropic ones - and
-    when the Anthropic credentials are connected as well, the picker lists both sides, each entry
-    carrying the provider of its turns ("gateway" | "anthropic"): choosing a model chooses the
-    credential too."""
+    a day) + ids seen in session logs (cached 60 s; each pass reads only what was appended).
+    Connected gateways (maxxing.gateway) put their ids first, instead of the Anthropic ones - and
+    when the Anthropic credentials are connected as well, the picker lists every side, each entry
+    carrying the provider of its turns ("gateway:<id>" | "anthropic"): choosing a model chooses
+    the credential too."""
     global _models_cache
     if time.time() - _models_cache[0] < 60:
         return _models_cache[1]
-    gw, dual, fallback = None, False, "anthropic"
+    gws: list[dict] = []
+    gwmod = None
+    fallback = "anthropic"
     try:
-        from .. import gateway
-        gw = gateway.configured()
-        dual = bool(gw) and gateway.anthropic_configured()
-        fallback = gateway.default_provider()
+        from .. import gateway as gwmod
+        gws = list(gwmod.gateways().values())
+        d = gwmod.default_gateway()
+        if d:                               # the default gateway first: a shared id resolves the same way
+            gws.sort(key=lambda g: g["id"] != d["id"])
+        fallback = gwmod.default_provider()
     except ImportError:
         pass
-    gw_ids = set(gateway.model_ids(gw)) if gw else set()          # the picker's gateway ids
-    served = set(gateway.served_ids(gw)) if gw else set()         # the ids the gateway really serves
+    dual = bool(gws) and gwmod.anthropic_configured()
+    served = {g["id"]: gwmod.served_ids(g) for g in gws}       # the ids each gateway really serves
     anth_ids = set(claude_models.latest())
     entries: set[tuple[str, str]]
-    if gw and not dual:                     # the gateway replaces the Anthropic built-ins
-        entries = {(m, "gateway") for m in gw_ids}
+    if gws and not dual:                    # gateways replace the Anthropic built-ins
+        entries = {(m, gwmod.gw_provider(g["id"])) for g in gws for m in gwmod.model_ids(g)}
     else:
         entries = {(m, "anthropic") for m in anth_ids}
-        if dual:                            # both sides connected: the picker lists both
-            entries |= {(m, "gateway") for m in served}
+        for g in gws:                       # every connected side: the picker lists them all
+            entries |= {(m, gwmod.gw_provider(g["id"])) for m in served[g["id"]]}
 
     def tag(i: str) -> str:
         """The provider of an id seen in a session log: its side when known, else the default."""
+        for g in gws:
+            if i in served[g["id"]]:
+                return gwmod.gw_provider(g["id"])
         if not dual:                        # one side connected: everything runs on it
-            return "gateway" if gw else "anthropic"
-        return "gateway" if i in served else "anthropic" if i in anth_ids else fallback
+            return gwmod.gw_provider(gws[0]["id"]) if gws else "anthropic"
+        return "anthropic" if i in anth_ids else fallback
 
     windows: dict = {}
     for sid in store.list_ids():

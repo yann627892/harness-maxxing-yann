@@ -682,12 +682,11 @@ def uv_bin() -> str | None:
 
 def claude_auth() -> tuple[str | None, str]:
     """-> (method, detail). method None = not signed in."""
-    if config.get_secret("anthropic_base_url"):
+    from . import gateway
+    if gateway.gateways():
         # both sides can be connected at once: the config decides which one the turns run on
-        an = bool(config.get_secret("claude_oauth_token") or config.get_secret("anthropic_api_key")
-                  or (config.claude_dir() / ".credentials.json").is_file())
-        if not an or str(config.load_config().get("claude_provider") or "") != "anthropic":
-            from . import gateway
+        an = gateway.anthropic_configured()
+        if not an or gateway.default_provider() != "anthropic":
             return "gateway", gateway.describe()
     if config.get_secret("claude_oauth_token"):
         return "oauth_token", "long-lived token stored in Harness Maxxing"

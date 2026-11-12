@@ -124,13 +124,14 @@ Four ways, best first:
    account — OpenCode Zen (pay-as-you-go credits), OpenCode Go (included in a Go subscription),
    OpenRouter, or a custom gateway. See [LLM gateway](#llm-gateway).
 
-A subscription credential (1, 2 or 3) and a gateway (4) can be **connected at the same time**:
-both stay stored, and each session picks its side with its model — the picker shows the models of
-both sides (tagged *subscription* / *gateway*) and choosing a model chooses the credential its
-turns run on. Settings -> Claude then shows both connections with a test button each, a
-**default** provider selector (new sessions, session titles and Team summaries follow it — moving
-it also moves the default model to that side's Sonnet), and a remove button per side. Sessions
-created before the two were connected keep running on the side their model comes from.
+A subscription credential (1, 2 or 3) and **several gateways** (4) can be **connected at the same
+time**: all of them stay stored, and each session picks its credential with its model — the
+picker shows every side's models (tagged *subscription* or with the gateway's name, OpenCode Go,
+OpenRouter…) and choosing a model chooses the credential its turns run on. Settings -> Claude
+then lists every connection with a test and a remove button each, and a **default** provider
+selector (new sessions, session titles and Team summaries follow it — moving it also moves the
+default model to that side's Sonnet). Sessions created before the connections were made keep
+running on the side their model comes from.
 
 **Test** makes a real one-line call and shows the model and the latency.
 
@@ -156,7 +157,10 @@ always use the newest Haiku or Sonnet.
 The **Gateway** tab of Settings -> Claude (or the onboarding) connects the Claude Code CLI to an
 **Anthropic-compatible gateway**: you paste the gateway's API key, Harness Maxxing stores it like
 every other credential (secrets file, root only) and the sessions running on the gateway point
-their `claude` process at it. Usage is billed to that account.
+their `claude` process at it. Usage is billed to that account. You can connect **one of each**
+(OpenCode Zen, OpenCode Go, OpenRouter, Custom) and use them side by side: each session remembers
+its gateway, the picker tags every model with the gateway's name, and Settings -> Claude tests and
+removes them one by one.
 
 | Provider | Address | Key |
 |---|---|---|
@@ -180,10 +184,11 @@ the Anthropic credentials instead gets none of those variables: only the stored 
 the CLI's own sign-in).
 
 Notes:
-- The gateway and the Anthropic credentials coexist: connecting one does not remove the other,
+- The gateways and the Anthropic credentials coexist: connecting one does not remove the others,
   and each session picks its side with its model (see [Claude authentication](#claude-authentication)).
-  Removing either in Settings -> Claude removes only that side; when nothing is left, the status
-  goes back to "not connected".
+  Removing one in Settings -> Claude removes only that connection; when nothing is left, the status
+  goes back to "not connected". A gateway that is removed falls back to another connection, so a
+  session still pointing at it does not fail.
 - OpenRouter recommends Anthropic models with Claude Code (its `anthropic/…` ids): other model
   families work through the gateway's translation but are not guaranteed. The picker lists a few
   anyway (GPT, Gemini, Grok, DeepSeek, Kimi, Qwen, GLM) beside the Claude ids.

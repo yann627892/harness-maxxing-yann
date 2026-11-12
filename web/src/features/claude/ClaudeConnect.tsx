@@ -39,31 +39,30 @@ export function ClaudeStatusCard({ onReplace, onAdd }: { onReplace?: () => void;
         {t('claude.notInstalledDesc')} <CodeBlock inline code="maxxing doctor" className="mt-2" />
       </Callout>
     )
-  const dual = !!s.gateway && !!s.anthropic?.connected      // both sides: each session picks with its model
+  const gws = s.gateways ?? (s.gateway ? [s.gateway] : [])
+  const anth = s.anthropic
+  const anOn = !!anth?.connected
+  const sides = gws.length + (anOn ? 1 : 0)
+  const multi = sides > 1                    // more than one credential: each session picks with its model
+  const runTest = (provider?: ClaudeProvider) =>
+    test.mutate(provider, {
+      onSuccess: setResult,
+      onError: (e) => setResult({ ok: false, model: '', ms: 0, error: errorMessage(e) }),
+    })
+  const askRemove = async (kind: 'gateway' | 'anthropic', id?: string) => {
+    const ok = await confirm({
+      title: t(kind === 'gateway' ? 'cconn.removeGwTitle' : 'cconn.removeAnTitle'),
+      description: t(kind === 'gateway' ? 'cconn.removeGwDesc' : 'cconn.removeAnDesc'),
+      destructive: true,
+      confirmText: t('common.remove'),
+    })
+    if (ok) remove.mutate({ kind, id })
+  }
   return (
     <div className="grid gap-3">
       <Callout
         tone={s.auth.ok ? 'success' : 'warning'}
         title={s.auth.ok ? t('claude.connected') : s.auth.method ? t('claude.signInExpired') : t('claude.notConnected')}
-        action={
-          s.auth.ok ? (
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                loading={test.isPending}
-                onClick={() =>
-                  test.mutate(undefined, {
-                    onSuccess: setResult,
-                    onError: (e) => setResult({ ok: false, model: '', ms: 0, error: errorMessage(e) }),
-                  })
-                }
-              >
-                <PlugZap /> {t('claude.test')}
-              </Button>
-            </div>
-          ) : undefined
-        }
       >
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {s.auth.method && <Badge variant="outline">{t(METHOD[s.auth.method])}</Badge>}
@@ -73,61 +72,73 @@ export function ClaudeStatusCard({ onReplace, onAdd }: { onReplace?: () => void;
               · <Sensitive>{s.auth.detail}</Sensitive>
             </span>
           )}
-          {s.gateway && !dual && <span className="text-muted-foreground">· {s.gateway.base_url}</span>}
           {s.auth.ok && s.auth.checked_at && (
             <span className="text-muted-foreground">· {t('claude.verified', { when: fmtRelative(s.auth.checked_at, lang) })}</span>
           )}
         </span>
       </Callout>
-      {dual && (
+      {sides > 0 && (
         <div className="grid gap-3 rounded-lg border p-4">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-            <Badge variant="outline">{t('cconn.anthropicSide')}</Badge>
-            {s.anthropic?.detail && <Sensitive>{s.anthropic.detail}</Sensitive>}
-            <span className="text-muted-foreground">·</span>
-            <Badge variant="outline">{s.gateway!.name}</Badge>
-            <span className="text-muted-foreground">{s.gateway!.base_url}</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">{t('cconn.defaultProvider')}</span>
-            <Select
-              value={s.default_provider || 'gateway'}
-              onValueChange={(v) => settings.mutate({ claude_provider: v as ClaudeProvider })}
-              aria-label={t('cconn.defaultProvider')}
-              options={[
-                { value: 'anthropic', label: t('cconn.anthropicSide') },
-                { value: 'gateway', label: s.gateway!.name },
-              ]}
-            />
-          </div>
-          <p className="text-sm text-muted-foreground">{t('cconn.defaultProviderDesc')}</p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              loading={test.isPending}
-              onClick={() =>
-                test.mutate('anthropic', {
-                  onSuccess: setResult,
-                  onError: (e) => setResult({ ok: false, model: '', ms: 0, error: errorMessage(e) }),
-                })
-              }
-            >
-              <PlugZap /> {t('cconn.testAnthropic')}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              loading={test.isPending}
-              onClick={() =>
-                test.mutate('gateway', {
-                  onSuccess: setResult,
-                  onError: (e) => setResult({ ok: false, model: '', ms: 0, error: errorMessage(e) }),
-                })
-              }
-            >
-              <PlugZap /> {t('cconn.testGateway')}
-            </Button>
+          {multi && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium">{t('cconn.defaultProvider')}</span>
+                <Select
+                  value={s.default_provider || (anOn ? 'anthropic' : `gateway:${gws[0].id}`)}
+                  onValueChange={(v) => settings.mutate({ claude_provider: v as ClaudeProvider })}
+                  aria-label={t('cconn.defaultProvider')}
+                  options={[
+                    ...(anOn ? [{ value: 'anthropic', label: t('cconn.anthropicSide') }] : []),
+                    ...gws.map((g) => ({ value: `gateway:${g.id}`, label: g.name })),
+                  ]}
+                />
+              </div>
+              <p className="text-sm text-muted-foreground">{t('cconn.defaultProviderDesc')}</p>
+            </>
+          )}
+          <div className="grid gap-2">
+            {anOn && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                <Badge variant="outline">{t('cconn.anthropicSide')}</Badge>
+                {anth?.detail && <Sensitive>{anth.detail}</Sensitive>}
+                <span className="ms-auto flex flex-wrap gap-1">
+                  <Button variant="ghost" size="sm" loading={test.isPending} onClick={() => runTest('anthropic')}>
+                    <PlugZap /> {t('cconn.testAnthropic')}
+                  </Button>
+                  {anth?.method !== 'credentials' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      loading={remove.isPending}
+                      onClick={() => void askRemove('anthropic')}
+                    >
+                      <Trash2 /> {t('cconn.removeAnthropic')}
+                    </Button>
+                  )}
+                </span>
+              </div>
+            )}
+            {gws.map((g) => (
+              <div key={g.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                <Badge variant="outline">{g.name}</Badge>
+                <span className="text-muted-foreground">{g.base_url}</span>
+                <span className="ms-auto flex flex-wrap gap-1">
+                  <Button variant="ghost" size="sm" loading={test.isPending} onClick={() => runTest(`gateway:${g.id}`)}>
+                    <PlugZap /> {t('cconn.testGateway')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    loading={remove.isPending}
+                    onClick={() => void askRemove('gateway', g.id)}
+                  >
+                    <Trash2 /> {t('cconn.removeGateway')}
+                  </Button>
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -147,48 +158,6 @@ export function ClaudeStatusCard({ onReplace, onAdd }: { onReplace?: () => void;
             <Button variant="outline" size="sm" onClick={() => window.dispatchEvent(new CustomEvent('maxxing:add-credential', { detail: onAdd }))}>
               <PlusCircle /> {t(onAdd === 'gateway' ? 'cconn.addGateway' : 'cconn.addAnthropic')}
             </Button>
-          )}
-          {dual ? (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                loading={remove.isPending}
-                onClick={async () => {
-                  if (await confirm({ title: t('cconn.removeGwTitle'), description: t('cconn.removeGwDesc'), destructive: true, confirmText: t('common.remove') })) remove.mutate('gateway')
-                }}
-              >
-                <Trash2 /> {t('cconn.removeGateway')}
-              </Button>
-              {s.anthropic?.method !== 'credentials' && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive"
-                  loading={remove.isPending}
-                  onClick={async () => {
-                    if (await confirm({ title: t('cconn.removeAnTitle'), description: t('cconn.removeAnDesc'), destructive: true, confirmText: t('common.remove') })) remove.mutate('anthropic')
-                  }}
-                >
-                  <Trash2 /> {t('cconn.removeAnthropic')}
-                </Button>
-              )}
-            </>
-          ) : (
-            s.auth.method !== 'credentials' && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                loading={remove.isPending}
-                onClick={async () => {
-                  if (await confirm({ title: t('claude.removeTitle'), description: t('claude.removeDesc'), destructive: true, confirmText: t('common.remove') })) remove.mutate()
-                }}
-              >
-                <Trash2 /> {t('claude.remove')}
-              </Button>
-            )
           )}
         </div>
       )}
@@ -335,9 +304,9 @@ export function ClaudeConnect() {
     window.addEventListener('maxxing:add-credential', open)
     return () => window.removeEventListener('maxxing:add-credential', open)
   }, [])
-  const gwOn = !!s?.gateway
   const anOn = !!s?.anthropic?.connected
-  const add: null | 'oauth_token' | 'gateway' = !s?.installed || (gwOn && anOn) ? null : anOn ? 'gateway' : gwOn ? 'oauth_token' : null
+  // Adding a second gateway is the common case once both sides exist: each preset is one connection.
+  const add: null | 'oauth_token' | 'gateway' = !s?.installed ? null : anOn ? 'gateway' : 'oauth_token'
   const showForm = !!s && s.installed && (!s.auth.ok || replacing || !!adding)
   return (
     <div className="grid gap-5">

@@ -69,8 +69,8 @@ def auth_status() -> dict:
 def run_test(model: str | None = None, source: str = "test", timeout_s: int = TEST_TIMEOUT_S,
              provider: str | None = None) -> dict:
     """Real one-line call through the CLI -> {ok, model, ms, error?} (also remembered).
-    model None: a connected gateway's cheap id, else the Anthropic fallback. provider: the side
-    to test ("gateway" | "anthropic"); None = the default provider."""
+    model None: the gateway's cheap id, else the Anthropic fallback. provider: the side to test
+    ("gateway:<id>" | "anthropic"; bare "gateway" = the default gateway); None = the default."""
     if model is None:
         model = gateway.test_model(provider=provider) or TEST_MODEL
     t0 = time.time()
@@ -172,6 +172,7 @@ async def status():
     return {"installed": bool(await asyncio.to_thread(_resolved_bin)), "version": version,
             "auth": await asyncio.to_thread(auth_status),
             "gateway": gateway.public(),
+            "gateways": gateway.public_all(),
             "anthropic": {"connected": anth[0] is not None, "method": anth[0], "detail": anth[1]},
             "default_provider": gateway.default_provider(),
             "default_model": cfg.get("default_model") or "",
@@ -206,7 +207,7 @@ async def set_auth(body: AuthIn):
         except ValueError as e:
             raise HTTPException(400, detail={"error": "invalid", "message": str(e)}) from None
         service.forget_models_cache()            # the picker switches to the gateway's ids right away
-        res = await asyncio.to_thread(run_test, provider="gateway")
+        res = await asyncio.to_thread(run_test, provider=gateway.gw_provider(body.provider or "custom"))
         return {"ok": res["ok"], **({"error": res["error"]} if not res["ok"] else {})}
     # the Anthropic credentials: one of them at a time (both env vars set would be ambiguous), the
     # gateway connection kept - both sides can be connected at once, each session picks with its model
@@ -218,16 +219,19 @@ async def set_auth(body: AuthIn):
 
 
 @router.delete("/auth")
-async def delete_auth(kind: str | None = None):
-    """Remove one credential (`kind` = "gateway" | "anthropic") or both (no kind)."""
+async def delete_auth(kind: str | None = None, id: str | None = None):
+    """Remove one credential (`kind` = "gateway" | "anthropic") or both (no kind). `id` picks one
+    gateway; without it, every gateway of that kind goes."""
     if kind not in (None, "gateway", "anthropic"):
         raise HTTPException(400, detail={"error": "invalid", "message": "kind: gateway or anthropic"})
+    if id and kind != "gateway":
+        raise HTTPException(400, detail={"error": "invalid", "message": "id: with kind=gateway only"})
     if kind in (None, "gateway"):
-        gateway.clear()
+        gateway.clear(id)
     if kind in (None, "anthropic"):
         for name in SECRET_FOR.values():
             config.set_secret(name, None)
-    if not gateway.anthropic_configured() and not gateway.configured():
+    if not gateway.anthropic_configured() and not gateway.gateways():
         claude_auth.forget()
     service.forget_models_cache()                 # the picker follows what remains connected
     return {"ok": True}
@@ -235,8 +239,9 @@ async def delete_auth(kind: str | None = None):
 
 @router.post("/test")
 async def test(provider: str | None = None):
-    if provider not in (None, "gateway", "anthropic"):
-        raise HTTPException(400, detail={"error": "invalid", "message": "provider: gateway or anthropic"})
+    if provider is not None and provider != "anthropic" and \
+            (not gateway.is_gateway(provider) or not gateway.get(provider)):
+        raise HTTPException(400, detail={"error": "invalid", "message": "provider: anthropic or gateway:<id>"})
     return await asyncio.to_thread(run_test, provider=provider)
 
 
@@ -272,10 +277,11 @@ async def settings(body: SettingsIn):
                                              "message": "permission_mode: bypass, acceptEdits, default or ask"})
         changes["permission_mode"] = body.permission_mode
     if body.claude_provider is not None:
-        if body.claude_provider not in ("anthropic", "gateway"):
+        p = body.claude_provider.strip().lower()
+        if p != "anthropic" and (not gateway.is_gateway(p) or not gateway.get(p)):
             raise HTTPException(400, detail={"error": "invalid",
-                                             "message": "claude_provider: anthropic or gateway"})
-        gateway.set_default_provider(body.claude_provider)   # also moves default_model with it
+                                             "message": "claude_provider: anthropic or gateway:<id>"})
+        gateway.set_default_provider(p)                     # also moves default_model with it
         service.forget_models_cache()                       # the picker's "default" line follows
     if body.auto_compact_tokens is not None:
         changes["auto_compact_tokens"] = body.auto_compact_tokens

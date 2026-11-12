@@ -55,7 +55,7 @@ class CreateIn(_Text):
     message: str | None = None
     title: str | None = None
     model: str | None = None
-    provider: str | None = None      # gateway | anthropic: the credential its turns use
+    provider: str | None = None      # gateway:<id> | anthropic: the credential its turns use
     attachments: list[str] = Field(default_factory=list)
     plan_mode: bool = False
     voice: str | None = None          # absolute path of a voice message sent directly (transcribed afterwards)
@@ -65,7 +65,7 @@ class CreateIn(_Text):
 class PatchIn(_Text):
     title: str | None = None
     model: str | None = None
-    provider: str | None = None      # gateway | anthropic ("" = back to the default provider)
+    provider: str | None = None      # gateway:<id> | anthropic ("" = back to the default provider)
     archived: bool | None = None
     notify: bool | None = None
     favorite: bool | None = None

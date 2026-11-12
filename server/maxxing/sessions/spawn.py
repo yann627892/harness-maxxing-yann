@@ -112,19 +112,19 @@ def auth_env(secrets: dict | None = None, keys: list[str] | None = None,
              provider: str | None = None) -> dict[str, str]:
     """Claude credentials stored in secrets.json + the user's vault entries flagged `expose`.
     keys: only these vault entries instead (an agent's turn sees the keys of its agent.json, nothing else).
-    provider: which side this turn runs on - "gateway" (maxxing.gateway: OpenCode Zen / Go,
-    OpenRouter, custom) or "anthropic" (the stored subscription token / API key, or the CLI's own
-    sign-in when nothing is stored). None: the default provider (config `claude_provider`). Both
-    sides can be connected at once; each session picks with its model. claude_env drops a gateway
-    configured in the environment from an Anthropic turn."""
+    provider: which side this turn runs on - "gateway:<id>" (one connected gateway: OpenCode Zen /
+    Go, OpenRouter, custom; bare "gateway" = the default one) or "anthropic" (the stored
+    subscription token / API key, or the CLI's own sign-in when nothing is stored). None: the
+    default provider (config `claude_provider`). Several sides can be connected at once; each
+    session picks with its model. claude_env drops a gateway configured in the environment from an
+    Anthropic turn."""
     s = secrets if secrets is not None else config.load_secrets()
     out = _exposed_vault(s) if keys is None else _named_vault(keys)
+    from .. import gateway
     if provider is None:
-        from .. import gateway
         provider = gateway.default_provider(s)
-    if provider == "gateway" and str(s.get("anthropic_base_url") or ""):
-        from .. import gateway
-        return gateway.auth_env(out, s, "gateway")
+    if gateway.is_gateway(provider) and gateway.get(provider, s):
+        return gateway.auth_env(out, s, provider)
     if s.get("claude_oauth_token"):
         out["CLAUDE_CODE_OAUTH_TOKEN"] = str(s["claude_oauth_token"])
     if s.get("anthropic_api_key"):
@@ -136,9 +136,9 @@ def _drop_env_gateway(env: dict[str, str], provider: str | None) -> None:
     """An Anthropic turn must not see a gateway configured in the service environment
     (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN) - unless nothing Anthropic is connected, where that
     environment gateway is the only credential there is."""
-    if provider == "gateway":
-        return
     from .. import gateway
+    if gateway.is_gateway(provider):
+        return
     if gateway.anthropic_configured():
         env.pop("ANTHROPIC_BASE_URL", None)
         env.pop("ANTHROPIC_AUTH_TOKEN", None)

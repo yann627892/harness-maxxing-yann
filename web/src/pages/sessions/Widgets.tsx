@@ -41,7 +41,15 @@ export function ModelPicker({
   const t = useT()
   const { data } = useClaudeStatus()
   const models = data?.models || []
-  const dual = new Set(models.map((m) => m.provider)).size > 1      // both credentials connected
+  const dual = new Set(models.map((m) => m.provider)).size > 1      // more than one credential connected
+  const gwName = (p?: ClaudeProvider | null): string | undefined => {
+    if (!p || p === 'anthropic') return undefined
+    const id = p.startsWith('gateway:') ? p.slice('gateway:'.length) : ''
+    return (id ? data?.gateways?.find((g) => g.id === id) : data?.gateway)?.name
+  }
+  const sameProvider = (a?: ClaudeProvider | null, b?: ClaudeProvider | null) =>
+    !a || !b || a === b ||
+    (a === 'gateway' && b.startsWith('gateway:')) || (b === 'gateway' && a.startsWith('gateway:'))
   const def = data?.default_model || ''
   const next = chosen || def
   const shown = real || next
@@ -65,8 +73,7 @@ export function ModelPicker({
     }
     onChange(model, provider)
   }
-  const isChosen = (m: ClaudeModel) =>
-    chosen === m.id && (!dual || !chosenProvider || chosenProvider === (m.provider ?? 'gateway'))
+  const isChosen = (m: ClaudeModel) => chosen === m.id && (!dual || sameProvider(chosenProvider, m.provider))
   const options = models.some((m) => m.id === chosen) || !chosen
     ? models
     : [...models, { id: chosen, label: modelLabel(chosen), provider: chosenProvider ?? undefined }]
@@ -110,7 +117,7 @@ export function ModelPicker({
             <span className="flex-1">{m.label || modelLabel(m.id)}</span>
             {dual && (
               <span className="text-[10px] text-muted-foreground">
-                {m.provider === 'anthropic' ? t('sessions.model.viaAnthropic') : data?.gateway?.name || t('sessions.model.viaGateway')}
+                {m.provider === 'anthropic' ? t('sessions.model.viaAnthropic') : gwName(m.provider) || t('sessions.model.viaGateway')}
               </span>
             )}
             {real === m.id && <span className="text-[10px] text-muted-foreground">{t('sessions.model.lastUsed')}</span>}

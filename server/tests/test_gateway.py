@@ -60,8 +60,8 @@ def test_base_url_rules():
 def test_connect_zen_and_status(client, mx):
     r = client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "zen"})
     assert r.json() == {"ok": True}
-    assert config.get_secret("anthropic_base_url") == "https://opencode.ai/inference/anthropic"
-    assert config.get_secret("anthropic_auth_token") == ZEN_KEY
+    assert config.get_secret("gateway_key_zen") == ZEN_KEY
+    assert config.load_config()["gateways"]["zen"]["base_url"] == "https://opencode.ai/inference/anthropic"
     st = client.get("/api/claude/status").json()
     assert st["auth"]["method"] == "gateway" and st["auth"]["ok"]
     assert st["gateway"] == {"provider": "zen", "name": "OpenCode Zen",
@@ -81,7 +81,7 @@ def test_connect_go_and_status(client, mx):
     id the plan does not cover (the old preset asked for Sonnet 5.5 and every turn failed)."""
     r = client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "zen_go"})
     assert r.json() == {"ok": True}
-    assert config.get_secret("anthropic_base_url") == "https://opencode.ai/inference/go/anthropic"
+    assert config.load_config()["gateways"]["zen_go"]["base_url"] == "https://opencode.ai/inference/go/anthropic"
     st = client.get("/api/claude/status").json()
     assert st["gateway"] == {"provider": "zen_go", "name": "OpenCode Go",
                              "base_url": "https://opencode.ai/inference/go/anthropic",
@@ -119,17 +119,84 @@ def test_gateway_and_anthropic_credentials_coexist(client, mx):
     assert config.get_secret("anthropic_api_key")
     client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "openrouter"})
     assert config.get_secret("anthropic_api_key")                     # kept, not cleared
-    assert config.get_secret("anthropic_base_url") == "https://openrouter.ai/api"
+    assert config.get_secret("gateway_key_openrouter") == ZEN_KEY
     st = client.get("/api/claude/status").json()
     assert st["gateway"] and st["gateway"]["provider"] == "openrouter"
     assert st["anthropic"] == {"connected": True, "method": "api_key",
                                "detail": "API key stored in Harness Maxxing"}
-    assert st["default_provider"] == "gateway"                        # the gateway wins by default
+    assert st["default_provider"] == "gateway:openrouter"             # the gateway wins by default
     assert st["auth"]["method"] == "gateway"
     # ...and connecting an Anthropic credential again keeps the gateway
     client.post("/api/claude/auth", json={"kind": "api_key", "value": "sk-ant-api-987654321"})
     st = client.get("/api/claude/status").json()
     assert st["gateway"] and st["anthropic"]["connected"] and st["anthropic"]["method"] == "api_key"
+
+
+def test_two_gateways_coexist_and_route_per_session(client, topic, mx):
+    """OpenCode Go and OpenRouter side by side: each session runs on its own base URL and key, the
+    default moves between them, and removing one leaves the other."""
+    client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "zen_go"})
+    client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "openrouter"})
+    st = client.get("/api/claude/status").json()
+    assert [g["id"] for g in st["gateways"]] == ["zen_go", "openrouter"]
+    assert [g["id"] for g in st["gateways"] if g["default"]] == ["zen_go"]      # the first connected
+    s1 = client.post("/api/sessions",
+                     json={"path": topic, "message": "go NOTOOL", "provider": "gateway:zen_go"}).json()
+    wait_idle(client, s1["id"])
+    call = next(c for c in _calls(mx) if "go NOTOOL" in c["prompt"])
+    assert call["env"]["ANTHROPIC_BASE_URL"] == "https://opencode.ai/inference/go/anthropic"
+    assert call["env"]["ANTHROPIC_AUTH_TOKEN"] == ZEN_KEY
+    s2 = client.post("/api/sessions",
+                     json={"path": topic, "message": "or NOTOOL", "provider": "gateway:openrouter"}).json()
+    wait_idle(client, s2["id"])
+    call = next(c for c in _calls(mx) if "or NOTOOL" in c["prompt"])
+    assert call["env"]["ANTHROPIC_BASE_URL"] == "https://openrouter.ai/api"
+    assert call["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "anthropic/claude-sonnet-5.5"
+    # the default gateway moves, and the default model with it
+    client.put("/api/claude/settings", json={"claude_provider": "gateway:openrouter"})
+    st = client.get("/api/claude/status").json()
+    assert st["default_provider"] == "gateway:openrouter"
+    assert [g["id"] for g in st["gateways"] if g["default"]] == ["openrouter"]
+    assert st["default_model"] == "anthropic/claude-sonnet-5.5"
+    # removing one keeps the other (and its key)
+    assert client.delete("/api/claude/auth", params={"kind": "gateway", "id": "zen_go"}).json() == {"ok": True}
+    st = client.get("/api/claude/status").json()
+    assert [g["id"] for g in st["gateways"]] == ["openrouter"]
+    assert config.get_secret("gateway_key_openrouter") == ZEN_KEY
+    assert config.get_secret("gateway_key_zen_go") in (None, "")
+    assert st["default_provider"] == "gateway:openrouter"
+
+
+def test_legacy_single_gateway_is_migrated(client, mx):
+    """An install from before several gateways: secrets anthropic_base_url/auth_token + config
+    "gateway". It shows up as one gateway, then the next connection moves it to the new shape."""
+    config.set_secrets({"anthropic_base_url": "https://openrouter.ai/api", "anthropic_auth_token": ZEN_KEY})
+    cfg = config.load_config()
+    cfg["gateway"] = {"provider": "openrouter",
+                      "models": {"opus": "", "sonnet": "anthropic/claude-sonnet-5.5", "haiku": "", "test": ""}}
+    config.save_config(cfg)
+    gws = gateway.gateways()
+    assert list(gws) == ["openrouter"] and gws["openrouter"]["token"] == ZEN_KEY
+    assert gateway.default_provider() == "gateway:openrouter"
+    assert gateway.provider_of({"provider": "gateway"}) == "gateway:openrouter"
+    assert [g["id"] for g in client.get("/api/claude/status").json()["gateways"]] == ["openrouter"]
+    # connecting a second gateway carries the older one into config "gateways"
+    client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "zen_go"})
+    cfg = config.load_config()
+    assert "gateway" not in cfg and set(cfg["gateways"]) == {"openrouter", "zen_go"}
+    assert config.get_secret("gateway_key_openrouter") == ZEN_KEY
+    assert config.get_secret("anthropic_base_url") in (None, "")
+
+
+def test_picker_tags_each_gateway(client, mx):
+    """Two gateways that both serve an id: each entry keeps its own provider token."""
+    client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "zen"})
+    client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "zen_go"})
+    models = client.get("/api/claude/status").json()["models"]
+    pairs = {(m["id"], m["provider"]) for m in models}
+    assert ("claude-haiku-5-5", "gateway:zen") in pairs
+    assert ("claude-haiku-5-5", "gateway:zen_go") in pairs
+    assert ("qwen3.8-max", "gateway:zen_go") in pairs
 
 
 def test_default_provider_setting_moves_the_default_model(client, mx):
@@ -141,7 +208,8 @@ def test_default_provider_setting_moves_the_default_model(client, mx):
     assert gateway.default_provider() == "anthropic"
     assert config.load_config()["default_model"] == "claude-sonnet-5-5"  # moved with the side
     assert client.get("/api/claude/status").json()["auth"]["method"] == "api_key"  # auth follows it
-    client.put("/api/claude/settings", json={"claude_provider": "gateway"})
+    client.put("/api/claude/settings", json={"claude_provider": "gateway:openrouter"})
+    assert gateway.default_provider() == "gateway:openrouter"
     assert config.load_config()["default_model"] == "anthropic/claude-sonnet-5.5"
     assert client.get("/api/claude/status").json()["auth"]["method"] == "gateway"
     r = client.put("/api/claude/settings", json={"claude_provider": "nope"})
@@ -155,10 +223,12 @@ def test_provider_of_follows_the_session_choice(client, mx):
     client.post("/api/claude/auth", json={"kind": "api_key", "value": "sk-ant-api-0123456789"})
     client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "openrouter"})
     client.put("/api/claude/settings", json={"claude_provider": "anthropic"})
-    assert gateway.provider_of({"provider": "gateway"}) == "gateway"       # the stored choice wins
+    # the bare "gateway" of older sessions means the default gateway
+    assert gateway.provider_of({"provider": "gateway"}) == "gateway:openrouter"
+    assert gateway.provider_of({"provider": "gateway:openrouter"}) == "gateway:openrouter"
     assert gateway.provider_of({"provider": "anthropic"}) == "anthropic"
     assert gateway.provider_of({}) == "anthropic"                           # else the default
-    assert gateway.provider_of({"model": "openai/gpt-6.1-terra"}) == "gateway"   # a gateway id
+    assert gateway.provider_of({"model": "openai/gpt-6.1-terra"}) == "gateway:openrouter"   # a gateway id
     assert gateway.provider_of({"model": "claude-sonnet-5-5"}) == "anthropic"   # an Anthropic id
 
 
@@ -200,11 +270,11 @@ def test_models_list_tags_each_side(client, mx):
     assert all(m["provider"] == "anthropic" for m in models)              # only the built-ins
     client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "openrouter"})
     models = client.get("/api/claude/status").json()["models"]
-    assert models and all(m["provider"] == "gateway" for m in models)     # it replaces them
+    assert models and all(m["provider"] == "gateway:openrouter" for m in models)   # it replaces them
     client.post("/api/claude/auth", json={"kind": "api_key", "value": "sk-ant-api-0123456789"})
     models = client.get("/api/claude/status").json()["models"]           # both: the picker lists both
     tags = {m["id"]: m["provider"] for m in models}
-    assert tags["anthropic/claude-sonnet-5.5"] == "gateway"
+    assert tags["anthropic/claude-sonnet-5.5"] == "gateway:openrouter"
     assert tags["claude-sonnet-5-5"] == "anthropic"
     client.delete("/api/claude/auth", params={"kind": "gateway"})
     models = client.get("/api/claude/status").json()["models"]
@@ -223,7 +293,7 @@ def test_delete_removes_one_side(client, mx):
     assert client.delete("/api/claude/auth", params={"kind": "anthropic"}).json() == {"ok": True}
     st = client.get("/api/claude/status").json()
     assert st["gateway"] and not st["anthropic"]["connected"]
-    assert st["auth"]["method"] == "gateway" and st["default_provider"] == "gateway"
+    assert st["auth"]["method"] == "gateway" and st["default_provider"] == "gateway:zen"
     assert config.get_secret("anthropic_api_key") in (None, "")
     assert client.delete("/api/claude/auth", params={"kind": "nope"}).status_code == 400
     assert client.delete("/api/claude/auth").json() == {"ok": True}       # no kind: everything
@@ -249,8 +319,8 @@ def test_anthropic_turn_drops_an_environment_gateway(client, mx, monkeypatch):
 def test_delete_clears_the_gateway(client, mx):
     client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "zen"})
     assert client.delete("/api/claude/auth").json() == {"ok": True}
-    assert config.get_secret("anthropic_base_url") in (None, "")
-    assert config.load_config().get("gateway") in (None, "", {})
+    assert config.get_secret("gateway_key_zen") in (None, "")
+    assert config.load_config().get("gateways") in (None, "", {})
     assert client.get("/api/claude/status").json()["auth"]["method"] is None
 
 
@@ -318,6 +388,7 @@ def test_role_pins_fall_back_to_the_default_model(client, mx):
     # a custom gateway pins nothing: every role falls back to the default model
     client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "custom",
                                           "base_url": "https://gw.example.com/api"})
+    client.put("/api/claude/settings", json={"claude_provider": "gateway:custom"})
     config.update_config(default_model="")                          # the zen preset set one
     assert gateway.role_models() == {}                               # no pin and no default model yet
     assert "ANTHROPIC_DEFAULT_HAIKU_MODEL" not in spawn.auth_env()
@@ -326,6 +397,6 @@ def test_role_pins_fall_back_to_the_default_model(client, mx):
                                      "haiku": "claude-sonnet-5-5"}  # the default model everywhere
     assert gateway.test_model() == "claude-sonnet-5-5"               # sonnet/haiku empty: the default
     cfg = config.load_config()
-    cfg["gateway"]["models"] = {"opus": "", "sonnet": "", "haiku": "", "test": "gw-haiku-test"}
+    cfg["gateways"]["custom"]["models"] = {"opus": "", "sonnet": "", "haiku": "", "test": "gw-haiku-test"}
     config.save_config(cfg)
     assert gateway.test_model() == "gw-haiku-test"                   # the test id stays editable

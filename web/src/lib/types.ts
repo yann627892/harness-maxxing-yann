@@ -33,8 +33,10 @@ export type OnboardingState = { completed: boolean; steps: Record<OnboardingStep
 
 /* ---------------------------------------------------------------- Claude */
 export type ClaudeAuthMethod = 'oauth_token' | 'credentials' | 'api_key' | 'gateway' | null
-/** Which credential a turn runs on: "anthropic" (subscription token / API key / CLI sign-in) or "gateway". */
-export type ClaudeProvider = 'anthropic' | 'gateway'
+/** Which credential a turn runs on: "anthropic" (subscription token / API key / CLI sign-in) or one
+ *  connected gateway, "gateway:<id>" (id = the preset key). The bare "gateway" is the older form:
+ *  sessions saved before several gateways existed, it means the default gateway. */
+export type ClaudeProvider = 'anthropic' | 'gateway' | `gateway:${ClaudeGatewayProvider}`
 /** `ask`: what is not pre-allowed waits for the user's Allow / Deny (topics, global setting, jobs; not agents). */
 export type PermissionMode = 'bypass' | 'acceptEdits' | 'default' | 'ask'
 export type ClaudeModel = {
@@ -50,8 +52,10 @@ export type ClaudeStatus = {
   version: string | null
   /** `ok` reflects the last REAL call (turn / test / background check); `checked_at` null = not verified yet. */
   auth: { ok: boolean; method: ClaudeAuthMethod; detail: string | null; checked_at?: number | null; error?: string | null }
-  /** The connected LLM gateway (OpenCode Zen / Go, OpenRouter, custom), null = none. */
+  /** The default LLM gateway (OpenCode Zen / Go, OpenRouter, custom), null = none. Older clients only. */
   gateway?: ClaudeGateway
+  /** Every connected gateway, in config order; `default` marks the one new sessions use. */
+  gateways?: ClaudeGateway[]
   /** The Anthropic credentials (subscription token / API key / CLI sign-in), null-ish = none. */
   anthropic?: { connected: boolean; method: ClaudeAuthMethod; detail: string | null }
   /** Which side new sessions and background calls use when their model does not say. */
@@ -82,7 +86,16 @@ export type ClaudeAutoUpdate = {
   last: { from: string; to: string; at: number; ok: boolean; error: string | null } | null
 }
 export type ClaudeGatewayProvider = 'zen' | 'zen_go' | 'openrouter' | 'custom'
-export type ClaudeGateway = { provider: ClaudeGatewayProvider; name: string; base_url: string; models: Record<string, string> } | null
+export type ClaudeGateway = {
+  /** The preset key, also the id the sessions use ("gateway:zen_go"). */
+  id: ClaudeGatewayProvider
+  provider: ClaudeGatewayProvider
+  name: string
+  base_url: string
+  models: Record<string, string>
+  /** New sessions and background calls use this gateway (when the default provider is a gateway). */
+  default?: boolean
+}
 export type ClaudeAuthBody = { kind: 'oauth_token' | 'api_key' | 'gateway'; value: string; provider?: ClaudeGatewayProvider; base_url?: string }
 export type ClaudeAuthResult = { ok: boolean; error?: string }
 export type ClaudeTestResult = { ok: boolean; model: string; ms: number; error?: string }

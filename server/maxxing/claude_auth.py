@@ -66,10 +66,10 @@ def anthropic_method() -> tuple[str | None, str]:
 
 
 def auth_method() -> tuple[str | None, str]:
-    """(method, detail) of the DEFAULT provider: config `claude_provider` ("gateway" |
-    "anthropic"), else the gateway when both sides are connected. See gateway.default_provider."""
+    """(method, detail) of the DEFAULT provider: config `claude_provider` ("gateway:<id>" |
+    "anthropic"), else a gateway when both sides are connected. See gateway.default_provider."""
     from . import gateway
-    if gateway.default_provider() == "gateway":
+    if gateway.is_gateway(gateway.default_provider()):
         return "gateway", gateway.describe()
     return anthropic_method()
 
@@ -97,8 +97,9 @@ def last() -> dict:
 
 def record(ok: bool, error: str | None = None, source: str = "turn", provider: str | None = None) -> None:
     """Remember the outcome of a real call (atomic, safe across processes). `provider`: the side
-    the call ran on ("gateway" | "anthropic"); None = the default provider."""
-    if provider == "gateway":
+    the call ran on ("gateway:<id>" | "anthropic"); None = the default provider."""
+    from . import gateway
+    if provider and gateway.is_gateway(provider):
         method = "gateway"
     elif provider == "anthropic":
         method = anthropic_method()[0]

@@ -18,11 +18,14 @@ and the config `claude_provider` decides the default one - new sessions and the 
 A turn on Anthropic gets none of that: spawn.auth_env gives it the stored subscription token /
 API key instead (or nothing, when the CLI is signed in itself).
 
-Connection state: secrets.json "anthropic_base_url" + "anthropic_auth_token" (the bearer key),
-config.json "gateway" = {"provider": "zen"|"zen_go"|"openrouter"|"custom", "models": {"opus": …,
-"sonnet": …, "haiku": …, "test": …}}. The api/claude.py `set_auth` endpoint fills it from the
-presets below; the ids stay editable (Settings -> Claude default model, /model in Telegram) and
-ids seen in session logs join the picker like the Anthropic ones.
+Connection state: config.json "gateways" = {id: {"provider": "zen"|"zen_go"|"openrouter"|"custom",
+"base_url": …, "models": {"opus": …, "sonnet": …, "haiku": …, "test": …}}}, one entry per connected
+gateway (id = the preset key); secrets.json "gateway_key_<id>" = that gateway's bearer key. An
+older install's single gateway (secrets "anthropic_base_url" + "anthropic_auth_token", config
+"gateway") is read as one entry and moved to this shape by the next connection. The api/claude.py
+`set_auth` endpoint fills an entry from the presets below; the ids stay editable (Settings ->
+Claude default model, /model in Telegram) and ids seen in session logs join the picker like the
+Anthropic ones.
 """
 from __future__ import annotations
 
@@ -149,27 +152,104 @@ def valid_base_url(url: str) -> str | None:
     return f"{scheme}://{host}{port}{path}"
 
 
-def configured(secrets: dict | None = None) -> dict | None:
-    """The connected gateway: {provider, name, base_url, models, extra}, or None. `models` are the
-    pinned gateway ids per role (opus/sonnet/haiku/test, "" = not pinned)."""
-    s = secrets if secrets is not None else config.load_secrets()
-    base = str(s.get("anthropic_base_url") or "").strip()
+# A turn runs on "anthropic" (the stored subscription token / API key, or the CLI's own sign-in)
+# or on a connected gateway: "gateway:<id>", id being the preset key (zen, zen_go, openrouter,
+# custom). The bare "gateway" of sessions from before several gateways existed means the default one.
+GATEWAY = "gateway"
+_KEY = "gateway_key_"          # secrets.json key of one gateway's bearer token
+
+
+def gw_provider(gw_id: str) -> str:
+    """The provider token of one gateway ("gateway:zen_go")."""
+    return f"{GATEWAY}:{gw_id}"
+
+
+def is_gateway(provider: str | None) -> bool:
+    """True for "gateway" (older sessions: the default one) and "gateway:<id>"."""
+    p = (provider or "").strip().lower()
+    return p == GATEWAY or p.startswith(GATEWAY + ":")
+
+
+def _gw_id(provider: str | None) -> str:
+    """The id of a "gateway:<id>" token, "" for "gateway" or anything else."""
+    p = (provider or "").strip().lower()
+    return p[len(GATEWAY) + 1:] if p.startswith(GATEWAY + ":") else ""
+
+
+def _entry(gw_id: str, provider: str, base_url: str, raw: Any, token: str) -> dict:
+    """One gateway, with the preset's pins filled in where the stored ones are empty."""
+    preset = PRESETS.get(provider, PRESETS["custom"])
+    raw = raw if isinstance(raw, dict) else {}
+    models = {k: str(raw.get(k) or preset["models"].get(k) or "") for k in ROLES}
+    return {"id": gw_id, "provider": provider, "name": preset["name"], "base_url": base_url,
+            "models": models, "extra": [str(x) for x in preset.get("extra") or []], "token": token}
+
+
+def _stored() -> dict:
+    """config.json "gateways": {id: {provider, base_url, models}} (the token stays in secrets.json)."""
+    g = config.load_config().get("gateways")
+    return {str(k): v for k, v in g.items() if isinstance(v, dict)} if isinstance(g, dict) else {}
+
+
+def _legacy(secrets: dict) -> tuple[str, str, Any, str] | None:
+    """The single-gateway shape of older installs: anthropic_base_url + anthropic_auth_token in
+    secrets.json, provider + models in config.json "gateway". -> (id, base_url, models, token)."""
+    base = str(secrets.get("anthropic_base_url") or "").strip()
+    token = str(secrets.get("anthropic_auth_token") or "")
     if not base:
         return None
     cfg = config.load_config().get("gateway")
     cfg = cfg if isinstance(cfg, dict) else {}
     provider = str(cfg.get("provider") or "custom").strip().lower()
-    preset = PRESETS.get(provider, PRESETS["custom"])
-    raw = cfg.get("models")
-    raw = raw if isinstance(raw, dict) else {}
-    models = {k: str(raw.get(k) or preset["models"].get(k) or "") for k in ROLES}
-    return {"provider": provider, "name": preset["name"], "base_url": base, "models": models,
-            "extra": [str(x) for x in preset.get("extra") or []]}
+    provider = provider if provider in PRESETS else "custom"
+    return provider, base, cfg.get("models"), token
 
 
-# The two credential sides a turn can run on. "anthropic": the stored subscription token / API
-# key, or the CLI's own sign-in; "gateway": the connected LLM gateway.
-PROVIDERS = ("anthropic", "gateway")
+def gateways(secrets: dict | None = None) -> dict[str, dict]:
+    """Every connected gateway, by id, in config order: {id, provider, name, base_url, models,
+    extra, token}. `models` are the pinned ids per role (opus/sonnet/haiku/test, "" = not pinned).
+    The single gateway of an older install shows up too, under its preset id."""
+    s = secrets if secrets is not None else config.load_secrets()
+    out: dict[str, dict] = {}
+    for gid, entry in _stored().items():
+        provider = str(entry.get("provider") or gid).strip().lower()
+        base = str(entry.get("base_url") or "").strip()
+        token = str(s.get(_KEY + gid) or "")
+        if base:
+            out[gid] = _entry(gid, provider, base, entry.get("models"), token)
+    leg = _legacy(s)
+    if leg:
+        gid, base, models, token = leg
+        if gid not in out and base:
+            out[gid] = _entry(gid, gid, base, models, token)
+    return out
+
+
+def default_gateway(secrets: dict | None = None) -> dict | None:
+    """The gateway background calls and older sessions use: the one config `claude_provider`
+    names, else the first connected one."""
+    gws = gateways(secrets)
+    if not gws:
+        return None
+    p = str(config.load_config().get("claude_provider") or "").strip().lower()
+    if p.startswith(GATEWAY + ":"):
+        g = gws.get(p[len(GATEWAY) + 1:])
+        if g:
+            return g
+    return next(iter(gws.values()))
+
+
+def get(provider: str | None = None, secrets: dict | None = None) -> dict | None:
+    """The gateway a provider token points at: "gateway:<id>"; "gateway" or None = the default one."""
+    gid = _gw_id(provider)
+    if gid:
+        return gateways(secrets).get(gid)
+    return default_gateway(secrets)
+
+
+def configured(secrets: dict | None = None) -> dict | None:
+    """The default gateway (older callers); see gateways() for all of them."""
+    return default_gateway(secrets)
 
 
 def anthropic_configured(secrets: dict | None = None) -> bool:
@@ -183,55 +263,76 @@ def anthropic_configured(secrets: dict | None = None) -> bool:
 
 def default_provider(secrets: dict | None = None) -> str:
     """Which credential a turn uses when its session does not say: config `claude_provider`
-    ("anthropic" | "gateway"), else the connected one (the gateway when both are). A stored
+    ("anthropic" | "gateway:<id>"), else the connected one (a gateway when both are). A stored
     choice pointing at a credential that is gone falls back to the other one."""
+    s = secrets if secrets is not None else config.load_secrets()
     p = str(config.load_config().get("claude_provider") or "").strip().lower()
-    gw = bool(configured(secrets))
-    an = anthropic_configured(secrets)
-    if p == "gateway" and not gw:
-        return "anthropic" if an else "gateway"
-    if p == "anthropic" and not an:
-        return "gateway" if gw else "anthropic"
-    return p if p in PROVIDERS else ("gateway" if gw else "anthropic")
+    gws = gateways(s)
+    an = anthropic_configured(s)
+    if p == "anthropic":
+        return "anthropic" if an else (gw_provider(next(iter(gws))) if gws else "anthropic")
+    gid = _gw_id(p)
+    if gid and gid in gws:
+        return p
+    if gws:                                  # no choice (or "gateway", the older default): first gateway
+        return gw_provider(next(iter(gws)))
+    return "anthropic"
 
 
 def provider_of(meta: dict | None, secrets: dict | None = None) -> str:
     """The provider of a session's turns (runner, aside): its stored choice, else - a session from
     before both were connected - the origin of its model id, else the default provider."""
+    s = secrets if secrets is not None else config.load_secrets()
     p = str((meta or {}).get("provider") or "").strip().lower()
-    if p in PROVIDERS:
-        return p
+    gws = gateways(s)
+    if p == "anthropic":
+        return "anthropic"
+    if p.startswith(GATEWAY + ":"):
+        return p if p[len(GATEWAY) + 1:] in gws else default_provider(s)
+    if p == GATEWAY:                                # older session: the default gateway
+        return gw_provider(next(iter(gws))) if gws else default_provider(s)
     model = str((meta or {}).get("model") or "").strip()
-    gw = configured(secrets)
-    if model and gw and model in served_ids(gw):
-        return "gateway"
-    return default_provider(secrets)
+    if model and gws:
+        order = list(gws.values())
+        d = default_gateway(s)
+        if d:
+            order.sort(key=lambda g: g["id"] != d["id"])
+        for g in order:
+            if model in served_ids(g):
+                return gw_provider(g["id"])
+    return default_provider(s)
 
 
 def set_default_provider(provider: str, secrets: dict | None = None) -> None:
     """Store the default provider (api/claude.py settings), moving `default_model` with it when
-    the current one belongs to the other side: a new session without a model of its own must not
-    ask the subscription for a gateway id (or the gateway for an Anthropic one)."""
+    the current one belongs to another side: a new session without a model of its own must not
+    ask one credential for an id another serves."""
+    s = secrets if secrets is not None else config.load_secrets()
     provider = str(provider or "").strip().lower()
-    if provider not in PROVIDERS:
-        return
+    gws = gateways(s)
+    if provider != "anthropic":
+        gid = _gw_id(provider) or (next(iter(gws)) if provider == GATEWAY and gws else "")
+        if not gid or gid not in gws:
+            return
+        provider = gw_provider(gid)
     cfg = config.load_config()
     cur = str(cfg.get("default_model") or "").strip()
     change: dict[str, Any] = {"claude_provider": provider}
-    gw = configured(secrets)
-    if provider == "gateway" and gw and (not cur or cur not in served_ids(gw)):
-        dm = str(gw["models"].get("sonnet") or "") or str(PRESETS[gw["provider"]]["default_model"])
-        if dm:
-            change["default_model"] = dm
-    elif provider == "anthropic" and (not cur or not _CLAUDE_ID.fullmatch(cur)):
+    if provider != "anthropic":
+        gw = gws[_gw_id(provider)]
+        if not cur or cur not in served_ids(gw):
+            dm = str(gw["models"].get("sonnet") or "") or str(PRESETS[gw["provider"]]["default_model"])
+            if dm:
+                change["default_model"] = dm
+    elif not cur or not _CLAUDE_ID.fullmatch(cur):
         from . import claude_models
         change["default_model"] = claude_models.latest_of("sonnet")
     config.update_config(**change)
 
 
 def describe(secrets: dict | None = None) -> str:
-    """The auth_method() detail line of a connected gateway."""
-    gw = configured(secrets)
+    """The auth_method() detail line of the default gateway."""
+    gw = default_gateway(secrets)
     return f"{gw['name']} gateway key stored in Harness Maxxing" if gw else ""
 
 
@@ -254,9 +355,9 @@ def test_model(gw: dict | None = None, provider: str | None = None) -> str | Non
     test runs on Anthropic (the caller falls back to Claude Code's own "haiku")."""
     if provider is None:
         provider = default_provider()
-    if provider != "gateway":
+    if not is_gateway(provider):
         return None
-    gw = gw if gw is not None else configured()
+    gw = gw if gw is not None else get(provider)
     if not gw:
         return None
     return gw["models"].get("test") or gw["models"].get("haiku") or gw["models"].get("sonnet") \
@@ -269,8 +370,8 @@ def small_model(role: str = "haiku", provider: str | None = None) -> str:
     model. provider None = the default provider."""
     if provider is None:
         provider = default_provider()
-    if provider == "gateway":
-        gw = configured()
+    if is_gateway(provider):
+        gw = get(provider)
         if gw:
             m = gw["models"].get(role) or gw["models"].get("haiku") or gw["models"].get("sonnet")
             if m:
@@ -282,76 +383,94 @@ def small_model(role: str = "haiku", provider: str | None = None) -> str:
 
 
 def model_ids(gw: dict | None = None) -> list[str]:
-    """Gateway ids for the model picker: the pinned roles, the default model and the preset list."""
+    """Gateway ids for the model picker: the pinned roles, the default model (only for the gateway
+    it belongs to) and the preset list."""
     gw = gw if gw is not None else configured()
     if not gw:
         return []
+    dm = str(config.load_config().get("default_model") or "").strip()
+    d = default_gateway()
+    default = dm if dm and not _CLAUDE_ID.fullmatch(dm) and d and d["id"] == gw["id"] else ""
     out = list(dict.fromkeys([gw["models"].get(r) for r in ("sonnet", "opus", "haiku")]
-                             + [str(config.load_config().get("default_model") or "").strip()]
-                             + [str(x) for x in gw["extra"]]))
+                             + [default] + [str(x) for x in gw["extra"]]))
     return [m for m in out if m]
 
 
 def served_ids(gw: dict | None = None) -> set[str]:
-    """The ids a connected gateway really serves - the provider inference (provider_of, the
-    picker's dual tags): the pinned roles and the preset list, plus the default model only when
-    it is not an Anthropic id (set_default_provider moves `default_model` to the other side, and
-    an id moved away must not loop back here through the picker list)."""
+    """The ids one gateway really serves - the provider inference (provider_of, the picker's
+    tags): the pinned roles and the preset list, plus the default model only when it is not an
+    Anthropic id and belongs to this gateway (the default one)."""
     gw = gw if gw is not None else configured()
     if not gw:
         return set()
     ids = {str(gw["models"].get(r) or "") for r in ROLES} | {str(x) for x in gw["extra"]}
     dm = str(config.load_config().get("default_model") or "").strip()
-    if dm and not _CLAUDE_ID.fullmatch(dm):
+    d = default_gateway()
+    if dm and not _CLAUDE_ID.fullmatch(dm) and d and d["id"] == gw["id"]:
         ids.add(dm)
     return {i for i in ids if i}
 
 
 def auth_env(out: dict[str, str], secrets: dict | None = None, provider: str | None = None) -> dict[str, str]:
     """The gateway variables of a Claude process, merged into `out` (spawn.auth_env) - when this
-    turn runs on the gateway. `provider` ("gateway" | "anthropic") selects the side, None = the
+    turn runs on a gateway. `provider` ("gateway:<id>" | "anthropic") selects the side, None = the
     default one: an Anthropic turn gets no gateway variables at all (spawn.auth_env adds the
     Anthropic ones), a gateway turn gets no CLAUDE_CODE_OAUTH_TOKEN and no real ANTHROPIC_API_KEY
     ("" keeps Claude Code from falling back to api.anthropic.com)."""
     if provider is None:
         provider = default_provider(secrets)
-    if provider != "gateway":
+    if not is_gateway(provider):
         return out
-    gw = configured(secrets)
+    gw = get(provider, secrets)
     if not gw:
         return out
-    s = secrets if secrets is not None else config.load_secrets()
     out["ANTHROPIC_BASE_URL"] = gw["base_url"]
-    token = str(s.get("anthropic_auth_token") or "")
-    if token:
-        out["ANTHROPIC_AUTH_TOKEN"] = token
+    if gw["token"]:
+        out["ANTHROPIC_AUTH_TOKEN"] = gw["token"]
     out["ANTHROPIC_API_KEY"] = ""
     for role, model in role_models(gw).items():
         out[f"ANTHROPIC_DEFAULT_{role.upper()}_MODEL"] = model
     return out
 
 
-def clear() -> None:
-    """Remove the gateway connection (secrets + config): another credential takes over. A default
-    provider pointing here falls back to the Anthropic one."""
-    config.set_secrets({"anthropic_base_url": None, "anthropic_auth_token": None})
+def clear(gw_id: str | None = None) -> None:
+    """Remove one gateway (`gw_id`) or every one (None): its token, its config entry, and a default
+    provider pointing at it (which falls back to the other credential)."""
+    s = config.load_secrets()
+    gws = gateways(s)
+    ids = [gw_id] if gw_id else list(gws)
+    if gw_id and gw_id not in gws:
+        return
     cfg = config.load_config()
-    changed = False
-    if isinstance(cfg.get("gateway"), dict):            # update_config(None) would keep the section
-        cfg.pop("gateway", None)
-        changed = True
-    if "claude_provider" in cfg:                        # a default set here falls back to Anthropic
-        cfg.pop("claude_provider", None)
-        changed = True
-    if changed:
-        config.save_config(cfg)
+    stored = _stored()
+    for gid in ids:
+        stored.pop(gid, None)
+    if stored:
+        cfg["gateways"] = stored
+    else:
+        cfg.pop("gateways", None)
+    leg = _legacy(s)
+    if leg and leg[0] in ids:
+        cfg.pop("gateway", None)                    # the single-gateway shape of older installs
+    if str(cfg.get("claude_provider") or "").strip().lower() == GATEWAY or \
+            _gw_id(str(cfg.get("claude_provider") or "")) in ids:
+        remaining = [g for g in gws if g not in ids]
+        if remaining:
+            cfg["claude_provider"] = gw_provider(remaining[0])
+        else:
+            cfg.pop("claude_provider", None)
+    config.save_config(cfg)
+    sec: dict[str, Any] = {_KEY + gid: None for gid in ids}
+    if leg and leg[0] in ids:
+        sec.update(anthropic_base_url=None, anthropic_auth_token=None)
+    config.set_secrets(sec)
 
 
 def connect(provider: str, base_url: str | None, value: str) -> dict[str, Any]:
-    """Store a gateway connection (api/claude.py set_auth): provider preset (or custom + base_url),
-    the bearer key, the pinned models, and a default model when none is set yet. The Anthropic
-    credentials are kept: both sides can be connected at once, each session picks its provider.
-    Raises ValueError when the provider or the base URL is not acceptable."""
+    """Store (or replace) one gateway connection (api/claude.py set_auth): the preset id, the
+    bearer key, the pinned models, and a default model when none is set yet. The other gateways
+    and the Anthropic credentials are kept: each session picks its side with its model. Raises
+    ValueError when the provider or the base URL is not acceptable."""
     provider = str(provider or "custom").strip().lower()
     if provider not in PRESETS:
         raise ValueError("unknown gateway provider")
@@ -359,19 +478,41 @@ def connect(provider: str, base_url: str | None, value: str) -> dict[str, Any]:
     base = valid_base_url(base_url or preset["base_url"])
     if not base:
         raise ValueError("the gateway address must be an https URL (http only on a private address)")
+    s = config.load_secrets()
+    stored = _stored()
+    leg = _legacy(s)
+    for gid, g in gateways(s).items():              # carry an older single gateway into the new shape
+        stored.setdefault(gid, {"provider": g["provider"], "base_url": g["base_url"], "models": g["models"]})
+    stored[provider] = {"provider": provider, "base_url": base, "models": dict(preset["models"])}
     cfg = config.load_config()
-    changes: dict[str, Any] = {"gateway": {"provider": provider, "models": dict(preset["models"])}}
+    cfg["gateways"] = stored
+    cfg.pop("gateway", None)
     if not str(cfg.get("default_model") or "").strip() and preset["default_model"]:
-        changes["default_model"] = preset["default_model"]
-    config.update_config(**changes)
-    config.set_secrets({"anthropic_base_url": base, "anthropic_auth_token": value})
+        cfg["default_model"] = preset["default_model"]
+    config.save_config(cfg)
+    sec: dict[str, Any] = {_KEY + provider: value,
+                           "anthropic_base_url": None, "anthropic_auth_token": None}
+    if leg and leg[3] and leg[0] != provider:       # the older gateway keeps its own key
+        sec[_KEY + leg[0]] = leg[3]
+    config.set_secrets(sec)
     return {"provider": provider, "base_url": base, "models": dict(preset["models"])}
 
 
-def public() -> dict | None:
-    """What /api/claude/status says about the connection: provider, name, base url, pinned models."""
-    gw = configured()
+def public(secrets: dict | None = None) -> dict | None:
+    """What /api/claude/status says about the default gateway (older clients): provider, name,
+    base url, pinned models."""
+    gw = default_gateway(secrets)
     if not gw:
         return None
     return {"provider": gw["provider"], "name": gw["name"], "base_url": gw["base_url"],
             "models": {k: gw["models"][k] for k in ROLES}}
+
+
+def public_all(secrets: dict | None = None) -> list[dict]:
+    """Every connected gateway for Settings -> Claude and the picker: {id, provider, name,
+    base_url, models, default}."""
+    d = default_provider(secrets)
+    return [{"id": g["id"], "provider": g["provider"], "name": g["name"], "base_url": g["base_url"],
+             "models": {k: g["models"][k] for k in ROLES},
+             "default": d == gw_provider(g["id"])}
+            for g in gateways(secrets).values()]
