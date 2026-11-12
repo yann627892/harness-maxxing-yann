@@ -75,6 +75,26 @@ def test_connect_zen_and_status(client, mx):
     assert any(m["id"] == "claude-sonnet-5-5" for m in st["models"])   # the picker shows them right away
 
 
+def test_connect_go_and_status(client, mx):
+    """Go serves the subscription's open models: the preset pins Qwen3.8 Max (the flagship that
+    speaks the Messages API natively) and Claude Haiku 5.5 for the cheap role, never an Anthropic
+    id the plan does not cover (the old preset asked for Sonnet 5.5 and every turn failed)."""
+    r = client.post("/api/claude/auth", json={"kind": "gateway", "value": ZEN_KEY, "provider": "zen_go"})
+    assert r.json() == {"ok": True}
+    assert config.get_secret("anthropic_base_url") == "https://opencode.ai/inference/go/anthropic"
+    st = client.get("/api/claude/status").json()
+    assert st["gateway"] == {"provider": "zen_go", "name": "OpenCode Go",
+                             "base_url": "https://opencode.ai/inference/go/anthropic",
+                             "models": {"opus": "qwen3.8-max", "sonnet": "qwen3.8-max",
+                                        "haiku": "claude-haiku-5-5", "test": "claude-haiku-5-5"}}
+    assert st["default_model"] == "qwen3.8-max"
+    t = client.post("/api/claude/test").json()
+    assert t["ok"] and t["model"] == "claude-haiku-5-5"
+    ids = {m["id"] for m in st["models"]}
+    assert {"qwen3.8-max", "claude-haiku-5-5", "glm-5.3", "kimi-k3.1-pro"} <= ids
+    assert not any(i.startswith("claude-sonnet") for i in ids)      # not in Go
+
+
 def test_gateway_models_refresh_without_waiting(client, mx):
     """Connecting a gateway refreshes the model list immediately: the picker never waits out the
     60 s cache of service.models() still holding the Anthropic ids of the previous status call."""

@@ -51,11 +51,20 @@ PRESETS: dict[str, dict] = {
         "base_url": "https://opencode.ai/inference/go/anthropic",
         "key_hint": "oc_sk_…",
         "key_url": "https://opencode.ai/console",
-        "default_model": "claude-sonnet-5-5",
-        "models": {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5",
+        # Go serves the subscription's open-weight models, not the Anthropic ones: Qwen3.8 Max and
+        # Claude Haiku 5.5 speak the Messages API natively, the other families go through Console's
+        # translation (GET https://opencode.ai/inference/go/v1/models lists what the plan covers).
+        "default_model": "qwen3.8-max",
+        "models": {"opus": "qwen3.8-max", "sonnet": "qwen3.8-max",
                    "haiku": "claude-haiku-5-5", "test": "claude-haiku-5-5"},
-        "extra": ["claude-fable-5-2", "claude-sonnet-4-6", "claude-opus-5", "claude-haiku-4-5",
-                  "gpt-6.1-sol", "gpt-6-luna", "gemini-4-argon", "minimax-m3", "qwen3.6-plus"],
+        "extra": ["qwen3.8-flash", "qwen3.7-plus", "glm-5.3", "glm-5.3-flash", "glm-5.2",
+                  "kimi-k3.1-pro", "kimi-k3", "kimi-k2.7-code", "deepseek-v4-pro",
+                  "deepseek-v4.1-flash", "minimax-m3", "minimax-m3.1-flash", "grok-4.7",
+                  "gpt-6-luna", "gpt-5.6-luna", "gemini-4-argon", "mimo-v2.6-pro",
+                  "mimo-v2.6-flash", "mimo-v2.5", "mimo-v2.5-pro", "hy4", "hy4-preview", "hy3",
+                  "longcat-2.0", "step-5-preview", "muse-spark-1.3-contributor",
+                  "muse-spark-1.2-contributor", "beam-free", "iceman-contributor-free",
+                  "longcat-2.5-free"],
     },
     "openrouter": {
         "name": "OpenRouter",

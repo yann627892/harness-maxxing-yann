@@ -165,6 +165,11 @@ their `claude` process at it. Usage is billed to that account.
 | **OpenRouter** | openrouter.ai/api | a key from [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) |
 | **Custom** | whatever you type | the gateway's bearer key |
 
+On **OpenCode Go**, the plan covers its own open-weight models (not the Anthropic ones): the preset pins
+**Qwen3.8 Max** for the Opus/Sonnet roles and **Claude Haiku 5.5** for the Haiku role and the test call, and the
+picker lists the subscription's other models (GLM, Kimi, DeepSeek, MiniMax, Grok, Gemini, GPT…). Pick another
+default in Settings -> Claude -> Default model whenever you prefer one of them.
+
 How it works under the hood (all automatic, nothing to configure by hand): the turn environment
 gets `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` (the bearer credential Claude Code documents for
 gateways), `ANTHROPIC_API_KEY` is left empty on purpose, and the `opus` / `sonnet` / `haiku` roles
