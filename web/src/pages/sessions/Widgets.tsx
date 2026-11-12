@@ -110,7 +110,7 @@ export function ModelPicker({
             <span className="flex-1">{m.label || modelLabel(m.id)}</span>
             {dual && (
               <span className="text-[10px] text-muted-foreground">
-                {m.provider === 'anthropic' ? t('sessions.model.viaAnthropic') : t('sessions.model.viaGateway')}
+                {m.provider === 'anthropic' ? t('sessions.model.viaAnthropic') : data?.gateway?.name || t('sessions.model.viaGateway')}
               </span>
             )}
             {real === m.id && <span className="text-[10px] text-muted-foreground">{t('sessions.model.lastUsed')}</span>}
