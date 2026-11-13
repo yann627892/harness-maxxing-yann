@@ -144,6 +144,31 @@ def test_attachments_and_uploads(client, topic, mx):
     assert bad.status_code == 400
 
 
+def test_effort_level_is_stored_and_reaches_each_turn(client, topic, mx):
+    s = client.post("/api/sessions", json={"path": topic, "message": "one", "effort": "high"}).json()
+    assert s["effort"] == "high"
+    wait_idle(client, s["id"])
+    assert calls(mx)[-1]["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "high"
+    p = client.patch(f"/api/sessions/{s['id']}", json={"effort": "xhigh"}).json()
+    assert p["effort"] == "xhigh" and p["model"] == s["model"]          # other fields untouched
+    client.post(f"/api/sessions/{s['id']}/messages", json={"text": "two"})
+    wait_idle(client, s["id"])
+    assert calls(mx)[-1]["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "xhigh"
+    assert client.patch(f"/api/sessions/{s['id']}", json={"effort": ""}).json()["effort"] == ""
+    client.post(f"/api/sessions/{s['id']}/messages", json={"text": "three"})
+    wait_idle(client, s["id"])
+    assert calls(mx)[-1]["env"]["CLAUDE_CODE_EFFORT_LEVEL"] is None    # back to the model's own default
+
+
+def test_an_effort_level_is_checked(client, topic):
+    s = client.post("/api/sessions", json={"path": topic, "message": "x"}).json()
+    wait_idle(client, s["id"])
+    for bad in ("ultra", "xhigh2", "HIGHER"):
+        r = client.patch(f"/api/sessions/{s['id']}", json={"effort": bad})
+        assert r.status_code == 400 and r.json()["error"] == "bad_effort", bad
+    assert client.patch(f"/api/sessions/{s['id']}", json={"effort": "AUTO"}).json()["effort"] == ""
+
+
 def test_search_patch_delete(client, topic):
     s = client.post("/api/sessions", json={"path": topic, "message": "find the zebra NOTOOL"}).json()
     wait_idle(client, s["id"])

@@ -296,6 +296,13 @@ differs from your choice, a marker tells you. Each model has its own prompt cach
 context, switching asks first, because the new model reads the whole conversation once without cache (Compact first
 to make the switch cheap).
 
+The same menu holds the **effort** level of the next turns (Auto, Low, Medium, High, Extra, Max):
+how much the model thinks before answering — higher is slower and uses more tokens. It is stored
+on the session (`CLAUDE_CODE_EFFORT_LEVEL` for its `claude` processes) and **Auto** leaves the
+choice to the model, which is the default. Claude Code caps a level the model does not support at
+the highest one it does; models it does not recognise as effort-capable (most gateway models) may
+ignore it. A value set in the service environment still wins when the session is left on Auto.
+
 ## Compact vs hand off
 
 When a conversation gets long, the context fills up and answers get slower and more expensive.

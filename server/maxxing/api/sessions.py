@@ -56,6 +56,7 @@ class CreateIn(_Text):
     title: str | None = None
     model: str | None = None
     provider: str | None = None      # gateway:<id> | anthropic: the credential its turns use
+    effort: str | None = None        # low | medium | high | xhigh | max ("" = the model's default)
     attachments: list[str] = Field(default_factory=list)
     plan_mode: bool = False
     voice: str | None = None          # absolute path of a voice message sent directly (transcribed afterwards)
@@ -66,6 +67,7 @@ class PatchIn(_Text):
     title: str | None = None
     model: str | None = None
     provider: str | None = None      # gateway:<id> | anthropic ("" = back to the default provider)
+    effort: str | None = None        # low | medium | high | xhigh | max ("" = the model's default)
     archived: bool | None = None
     notify: bool | None = None
     favorite: bool | None = None
@@ -131,7 +133,8 @@ async def list_sessions(path: str | None = None, archived: int | None = Query(No
 @router.post("/sessions")
 async def create_session(body: CreateIn):
     return await _call(service.create_session, body.path, message=body.message, title=body.title,
-                       model=body.model, provider=body.provider, attachments=body.attachments, source="web",
+                       model=body.model, provider=body.provider, effort=body.effort,
+                       attachments=body.attachments, source="web",
                        plan_mode=body.plan_mode, voice_path=body.voice, client_id=body.client_id)
 
 
@@ -149,7 +152,7 @@ async def get_session(sid: str):
 @router.patch("/sessions/{sid}")
 async def patch_session(sid: str, body: PatchIn):
     return await _call(service.update_session, sid, title=body.title, model=body.model,
-                       provider=body.provider,
+                       provider=body.provider, effort=body.effort,
                        archived=body.archived, notify=body.notify, plan_mode=body.plan_mode,
                        favorite=body.favorite, path=body.path)
 

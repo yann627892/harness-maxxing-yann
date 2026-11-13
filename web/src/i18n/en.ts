@@ -3983,4 +3983,12 @@ export const en = {
   'ext.newWidgetPrompt': "Make me a dashboard widget that shows ",
   'ext.newPagePrompt': "Make me a page (extension) for ",
   'feed.settingsTitle': "Notifications feed",
+  'effort.label': "Effort",
+  'effort.hint': "Higher: more thinking, more tokens",
+  'effort.auto': "Auto (model)",
+  'effort.low': "Low",
+  'effort.medium': "Medium",
+  'effort.high': "High",
+  'effort.xhigh': "Extra",
+  'effort.max': "Max",
 }

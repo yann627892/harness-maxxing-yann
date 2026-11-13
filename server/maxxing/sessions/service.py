@@ -42,6 +42,19 @@ def _check_model(model: str | None) -> str:
     return model
 
 
+EFFORTS = ("low", "medium", "high", "xhigh", "max")     # CLAUDE_CODE_EFFORT_LEVEL values
+
+
+def _check_effort(effort: str | None) -> str:
+    """The reasoning effort of a session's turns; "" = the model's own default (no variable set)."""
+    e = (effort or "").strip().lower()
+    if e in ("auto", "default"):
+        return ""
+    if e and e not in EFFORTS:
+        raise SessionError(400, "bad_effort", "Invalid effort (low, medium, high, xhigh, max)")
+    return e
+
+
 def _check_provider(provider: str | None) -> str:
     """The provider of a session's turns ("anthropic" | "gateway:<id>"); "" = follow the default.
     The bare "gateway" of older clients/sessions still means the default gateway."""
@@ -170,7 +183,8 @@ def public(meta: dict) -> dict:
             "unread": bool(finished) and finished > seen and m.get("state") != "running",
             "last_text": m.get("last_text") or "", "error": m.get("error") or None,
             "plan_mode": bool(m.get("plan_mode")), "plan_ready": bool(m.get("plan_ready")),
-            "permission_mode": m.get("permission_mode") or "", "approvals": _approvals_waiting(m["id"])}
+            "permission_mode": m.get("permission_mode") or "", "approvals": _approvals_waiting(m["id"]),
+            "effort": m.get("effort") or ""}
 
 
 def _approvals_waiting(sid: str) -> int:
@@ -321,7 +335,7 @@ def create_session(path: str, message: str | None = None, title: str | None = No
                    env: dict | None = None, timeout_s: int | None = None, plan_mode: bool = False,
                    permission_mode: str = "", auto_title: bool = False, voice_path: str | None = None,
                    client_id: str | None = None, silent_ok: bool = False,
-                   provider: str | None = None) -> dict:
+                   provider: str | None = None, effort: str | None = None) -> dict:
     """`auto_title`: `title` was made from the first message by the caller (Telegram) - still worth a short title.
     `silent_ok`: a scheduled job that reports every run - its turn may answer [SILENT] (runner, spawn.CRON_SILENT).
     `provider`: the credential its turns use (gateway:<id> | anthropic); "" = the default provider."""
@@ -335,9 +349,10 @@ def create_session(path: str, message: str | None = None, title: str | None = No
     given = (title or "").strip()[:120]
     model = _check_model(model)
     prov = _check_provider(provider)
+    lvl = _check_effort(effort)
     meta = store.new_meta(p, given or _default_title(p, message), model=model or "",
                           source=source, notify=notify, cron=cron, env=env, timeout_s=timeout_s, plan_mode=plan_mode,
-                          permission_mode=permission_mode)
+                          permission_mode=permission_mode, effort=lvl)
     if prov:
         meta["provider"] = prov
     automatic, has_text = auto_title or not given, bool((message or "").strip())
@@ -598,11 +613,13 @@ def _signal(pid: int, sig: int) -> None:
 def update_session(sid: str, title: str | None = None, model: str | None = None,
                    archived: bool | None = None, notify: bool | None = None,
                    plan_mode: bool | None = None, favorite: bool | None = None,
-                   path: str | None = None, provider: str | None = None) -> dict:
+                   path: str | None = None, provider: str | None = None,
+                   effort: str | None = None) -> dict:
     cur = _require(sid)
     if model is not None:
         model = _check_model(model)
     prov = _check_provider(provider) if provider is not None else None
+    lvl = _check_effort(effort) if effort is not None else None
     if path is not None:
         move_session(sid, path, cur)
     with store.edit(sid) as m:
@@ -625,6 +642,8 @@ def update_session(sid: str, title: str | None = None, model: str | None = None,
             m["plan_mode"] = bool(plan_mode)
             if not plan_mode:
                 m["plan_ready"] = False
+        if lvl is not None:
+            m["effort"] = lvl                    # "" = back to the model's default effort
     bus.invalidate("sessions", "workspace")
     return get_session(sid) or {}
 
@@ -680,7 +699,7 @@ def handoff(sid: str) -> dict:
     n = sum(1 for s in list_sessions(old["path"]) if s["title"].startswith(base + " (cont."))
     new = store.new_meta(old["path"], f"{base} (cont.{' %d' % (n + 1) if n else ''})",
                          model=old["model"], source=old["source"], notify=old["notify"],
-                         env=meta.get("env"), timeout_s=meta.get("timeout_s"))
+                         env=meta.get("env"), timeout_s=meta.get("timeout_s"), effort=meta.get("effort") or "")
     if meta.get("favorite"):                 # the continuation stays in the user's favorites
         new["favorite"] = True
     new["handoff_pending"] = time.time()     # messages sent to it wait for the summary seed (runner._handoff)

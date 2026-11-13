@@ -44,6 +44,12 @@ def test_unset_tuning_does_not_change_claude_defaults(monkeypatch):
     assert capture_unit(monkeypatch, {}) == {}
 
 
+def test_session_effort_sets_the_effort_variable_only_when_chosen():
+    assert spawn.effort_env({}) == {}
+    assert spawn.effort_env({"effort": ""}) == {}
+    assert spawn.effort_env({"effort": "high"}) == {"CLAUDE_CODE_EFFORT_LEVEL": "high"}
+
+
 def test_unit_arguments_do_not_forward_credentials_or_unrelated_env(monkeypatch):
     env = {**TUNING, "ANTHROPIC_API_KEY": "test-secret", "CLAUDE_CODE_OAUTH_TOKEN": "test-secret",
            "UNRELATED_SETTING": "private"}

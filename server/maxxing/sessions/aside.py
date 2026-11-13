@@ -69,7 +69,8 @@ def _run(m: dict, csid: str, cwd: str, cfg: dict, question: str) -> dict:
     args = [spawn.claude_bin(), "-p", "--output-format", "json", *spawn.permission_args("plan")[0],
             "--resume", csid, "--fork-session", "--no-session-persistence", *spawn.settings_args(cfg)] + (["--model", model] if model else [])
     from .. import gateway                     # the side question runs on the session's side
-    env = spawn.claude_env(m.get("env") or {}, "plan", provider=gateway.provider_of(m))
+    env = spawn.claude_env({**(m.get("env") or {}), **spawn.effort_env(m)}, "plan",
+                           provider=gateway.provider_of(m))
     t0 = time.time()
     try:
         p = subprocess.run(args, input=ASK_PREFACE + question, capture_output=True, text=True, cwd=cwd, env=env,

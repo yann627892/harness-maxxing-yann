@@ -1,0 +1,1 @@
+var e={"effort.label":`Effort`,"effort.hint":`Plus haut : plus de réflexion, plus de tokens`,"effort.auto":`Auto (modèle)`,"effort.low":`Faible`,"effort.medium":`Moyen`,"effort.high":`Élevé`,"effort.xhigh":`Très élevé`,"effort.max":`Max`};export{e as default};

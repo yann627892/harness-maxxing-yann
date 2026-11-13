@@ -279,7 +279,7 @@ def record_windows(result: dict) -> None:
 
 def new_meta(path: str, title: str, *, model: str = "", source: str = "web", notify: bool = False,
              cron: bool = False, env: dict | None = None, timeout_s: int | None = None,
-             plan_mode: bool = False, permission_mode: str = "") -> dict:
+             plan_mode: bool = False, permission_mode: str = "", effort: str = "") -> dict:
     now = time.time()
     sid = new_id()
     return {"id": sid, "title": title, "path": path, "state": "idle", "queue": [],
@@ -290,7 +290,7 @@ def new_meta(path: str, title: str, *, model: str = "", source: str = "web", not
             "csid": sid, "fresh": True, "pid": None, "unit": None, "spawned_at": None,
             "finished_at": None, "seen_at": None, "env": dict(env or {}), "timeout_s": timeout_s,
             "plan_mode": bool(plan_mode), "plan_ready": False,
-            "permission_mode": permission_mode or ""}
+            "permission_mode": permission_mode or "", "effort": effort or ""}
 
 
 # Session ids, kept in memory: the folder is listed again only when its mtime changed (a file added, removed or

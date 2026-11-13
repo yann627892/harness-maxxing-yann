@@ -3965,4 +3965,12 @@ export const fr: Record<keyof typeof en, string> = {
   'ext.newWidgetPrompt': "Fais-moi un widget du dashboard qui montre ",
   'ext.newPagePrompt': "Fais-moi une page (extension) pour ",
   'feed.settingsTitle': "Fil de notifications",
+  'effort.label': "Effort",
+  'effort.hint': "Plus haut : plus de réflexion, plus de tokens",
+  'effort.auto': "Auto (modèle)",
+  'effort.low': "Faible",
+  'effort.medium': "Moyen",
+  'effort.high': "Élevé",
+  'effort.xhigh': "Très élevé",
+  'effort.max': "Max",
 }

@@ -33,6 +33,8 @@ export const GROUPS = {
   skw: ['skw'],
   // the guided tour: loaded with its chunk (tour/Tour.tsx); its entry points (menu, palette) use help.*
   tour: ['tour'],
+  // the model picker's effort levels: loaded when the picker first shows one
+  effort: ['effort'],
 } as const satisfies Record<string, readonly string[]>
 
 export type Group = keyof typeof GROUPS

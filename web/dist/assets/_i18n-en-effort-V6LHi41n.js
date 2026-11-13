@@ -1,0 +1,1 @@
+var e={"effort.label":`Effort`,"effort.hint":`Higher: more thinking, more tokens`,"effort.auto":`Auto (model)`,"effort.low":`Low`,"effort.medium":`Medium`,"effort.high":`High`,"effort.xhigh":`Extra`,"effort.max":`Max`};export{e as default};

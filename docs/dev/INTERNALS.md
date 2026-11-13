@@ -867,6 +867,10 @@ visible in `ps`: never add a secret to this list; credentials go through `auth_e
 runner). Simplest for users: the `env` block of `~/.claude/settings.json`, read by Claude Code itself.
 To set them on the service: `systemctl edit claude-maxxing` -> `[Service]` `Environment=NAME=value`.
 
+`CLAUDE_CODE_EFFORT_LEVEL` can also be chosen per session (the model picker's **Effort** submenu):
+the session meta keeps `effort`, `spawn.effort_env(meta)` adds it to the turn's `claude_env`, and
+it wins over the service value for that turn (empty = the model's own default, service value if any).
+
 ## Environment overrides (tests / development - never needed in production)
 - `MAXXING_WEB_DIST` serve the UI from another build folder (dev)
 - `MAXXING_STATE` state dir · `MAXXING_CLAUDE_BIN` claude executable (tests: server/tests/fake_claude.py)

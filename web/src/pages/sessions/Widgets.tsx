@@ -3,9 +3,19 @@ import { Check, ChevronDown, Cpu } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useT } from '@/i18n'
 import { useClaudeStatus } from '@/lib/queries'
-import { Badge, confirm, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, StatusDot, Tooltip } from '@/components/ui'
-import type { ClaudeModel, ClaudeProvider, Session } from '@/lib/types'
+import { Badge, confirm, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, StatusDot, Tooltip } from '@/components/ui'
+import type { ClaudeEffort, ClaudeModel, ClaudeProvider, Session } from '@/lib/types'
 import { contextWindow, fmtTokens, modelLabel } from './util'
+
+const EFFORTS: ClaudeEffort[] = ['', 'low', 'medium', 'high', 'xhigh', 'max']
+const EFFORT_KEYS = {
+  '': 'effort.auto',
+  low: 'effort.low',
+  medium: 'effort.medium',
+  high: 'effort.high',
+  xhigh: 'effort.xhigh',
+  max: 'effort.max',
+} as const
 
 /** Family aliases follow resolved versions; pinned model ids still compare exactly. */
 function matchesModel(real: string, chosen: string): boolean {
@@ -19,9 +29,11 @@ const SWITCH_WARN_TOKENS = 50_000
 export function ModelPicker({
   chosen,
   chosenProvider,
+  effort,
   real,
   contextTokens,
   onChange,
+  onEffort,
   disabled,
   compact,
 }: {
@@ -29,18 +41,23 @@ export function ModelPicker({
   chosen: string
   /** Provider of that model (unset = the session predates the choice / follows the default). */
   chosenProvider?: ClaudeProvider | null
+  /** Reasoning effort of the next turns ("" = the model's default). */
+  effort?: ClaudeEffort
   /** Model that answered the last turn (null before the first answer). */
   real?: string | null
   /** Context of the last turn: a switch above SWITCH_WARN_TOKENS asks first. */
   contextTokens?: number | null
   /** provider: the credential the chosen model's turns run on; "" (the default row) follows the default provider. */
   onChange: (model: string, provider?: '' | ClaudeProvider) => void
+  /** The effort menu only shows when this is given (the composer's picker). */
+  onEffort?: (effort: ClaudeEffort) => void
   disabled?: boolean
   compact?: boolean
 }) {
   const t = useT()
   const { data } = useClaudeStatus()
   const models = data?.models || []
+  const effortLabel = (e: ClaudeEffort) => t(EFFORT_KEYS[e])
   const dual = new Set(models.map((m) => m.provider)).size > 1      // more than one credential connected
   const gwName = (p?: ClaudeProvider | null): string | undefined => {
     if (!p || p === 'anthropic') return undefined
@@ -72,7 +89,7 @@ export function ModelPicker({
       : real
         ? t('sessions.model.answered', { model: modelLabel(real, models) })
         : t('sessions.model.next', { model: next ? modelLabel(next, models) : t('sessions.model.default') })
-  }${gw ? ` · ${gw}` : ''}`
+  }${gw ? ` · ${gw}` : ''}${effort ? ` · ${effortLabel(effort)}` : ''}`
   const pick = async (model: string, provider?: '' | ClaudeProvider) => {
     const target = model || def
     const ctx = contextTokens ?? 0
@@ -110,6 +127,11 @@ export function ModelPicker({
                 {gw}
               </span>
             )}
+            {effort && (
+              <span className="shrink-0 text-[10px] font-normal whitespace-nowrap text-muted-foreground max-sm:hidden">
+                {effortLabel(effort)}
+              </span>
+            )}
             {differs && (
               <span className="shrink-0 rounded bg-warning/15 px-1 text-[10px] whitespace-nowrap text-warning">
                 → {modelLabel(next, models)}
@@ -140,6 +162,27 @@ export function ModelPicker({
             {real === m.id && <span className="text-[10px] text-muted-foreground">{t('sessions.model.lastUsed')}</span>}
           </DropdownMenuItem>
         ))}
+        {onEffort && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <span className="flex-1">{t('effort.label')}</span>
+                <span className="text-xs text-muted-foreground">{effortLabel(effort || '')}</span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-56">
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{t('effort.hint')}</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={effort || ''} onValueChange={(v) => onEffort(v as ClaudeEffort)}>
+                  {EFFORTS.map((e) => (
+                    <DropdownMenuRadioItem key={e || 'auto'} value={e}>
+                      {effortLabel(e)}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

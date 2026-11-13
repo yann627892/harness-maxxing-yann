@@ -432,7 +432,8 @@ class Runner:
         base += agent.get("args") or []
         from maxxing import pcbridge                    # not at import: the runner starts with stdlib-only modules
         base += pcbridge.mcp_config_args() + mcp_plan.args + approval
-        env = spawn.claude_env(meta.get("env") or {}, mode, agent.get("keys") if agent else None, self.provider)
+        env = spawn.claude_env({**(meta.get("env") or {}), **spawn.effort_env(meta)}, mode,
+                               agent.get("keys") if agent else None, self.provider)
         env["MAXXING_SESSION"] = self.sid               # `maxxing mcp load` run by the turn finds its session
         text = (PLAN_PREFACE if plan else "") + build_prompt(item)
         root = Path(cfg.get("workspace") or "/").resolve()

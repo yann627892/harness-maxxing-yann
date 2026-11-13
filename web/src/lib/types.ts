@@ -37,6 +37,8 @@ export type ClaudeAuthMethod = 'oauth_token' | 'credentials' | 'api_key' | 'gate
  *  connected gateway, "gateway:<id>" (id = the preset key). The bare "gateway" is the older form:
  *  sessions saved before several gateways existed, it means the default gateway. */
 export type ClaudeProvider = 'anthropic' | 'gateway' | `gateway:${ClaudeGatewayProvider}`
+/** `CLAUDE_CODE_EFFORT_LEVEL`: how hard the model works on each turn ("" = the model's default). */
+export type ClaudeEffort = '' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 /** `ask`: what is not pre-allowed waits for the user's Allow / Deny (topics, global setting, jobs; not agents). */
 export type PermissionMode = 'bypass' | 'acceptEdits' | 'default' | 'ask'
 export type ClaudeModel = {
@@ -364,6 +366,8 @@ export type Session = {
   model: string
   /** The credential this session's turns run on (unset = the default provider). */
   provider?: ClaudeProvider
+  /** Reasoning effort of its turns ("" = the model's default). */
+  effort?: ClaudeEffort
   real_model: string | null
   context_tokens: number | null
   /** Context window of the last turn's model (e.g. 1 000 000); null when unknown. */
@@ -403,8 +407,8 @@ export type Approval = {
   /** The rule "Always allow" would add to the session's topic ("" = not offered: agents, multi-line commands...). */
   always_rule?: string
 }
-export type CreateSessionBody = { path: string; message?: string; title?: string; model?: string; provider?: ClaudeProvider; attachments?: string[]; plan_mode?: boolean; /** Absolute path of a voice message sent directly. */ voice?: string; /** This page's id for the first message (see SendMessageBody). */ client_id?: string }
-export type PatchSessionBody = { title?: string; model?: string; /** "" = back to the default provider. */ provider?: string; archived?: boolean; notify?: boolean; plan_mode?: boolean; favorite?: boolean; /** Move to another topic (idle sessions only). */ path?: string }
+export type CreateSessionBody = { path: string; message?: string; title?: string; model?: string; provider?: ClaudeProvider; effort?: ClaudeEffort; attachments?: string[]; plan_mode?: boolean; /** Absolute path of a voice message sent directly. */ voice?: string; /** This page's id for the first message (see SendMessageBody). */ client_id?: string }
+export type PatchSessionBody = { title?: string; model?: string; /** "" = back to the default provider. */ provider?: string; /** "" = the model's default effort. */ effort?: ClaudeEffort; archived?: boolean; notify?: boolean; plan_mode?: boolean; favorite?: boolean; /** Move to another topic (idle sessions only). */ path?: string }
 export type SendMessageBody = { text: string; attachments?: string[]; hud?: boolean; /** Absolute path of a voice message sent directly: the server transcribes it, then sends it. */ voice?: string; /** This page's id for the message, found again in `client_ids` of its queue item and its log event (a reload mid-send checks it). */ client_id?: string }
 export type SendMessageResult = { queued: boolean; session: Session }
 export type SessionSearchHit = { id: string; title: string; path: string; snippet: string; at: number }

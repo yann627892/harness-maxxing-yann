@@ -256,6 +256,13 @@ def _settings_file(text: str) -> Path:
     return p
 
 
+def effort_env(meta: dict | None) -> dict[str, str]:
+    """The reasoning effort a session chose (`CLAUDE_CODE_EFFORT_LEVEL`); {} = the model's own
+    default. Set last in `claude_env`'s extra, so it wins over a value the service forwards."""
+    effort = str((meta or {}).get("effort") or "").strip()
+    return {"CLAUDE_CODE_EFFORT_LEVEL": effort} if effort else {}
+
+
 def claude_env(extra: dict | None = None, permission_mode: str = "bypass", keys: list[str] | None = None,
               provider: str | None = None) -> dict[str, str]:
     env = base_env()
