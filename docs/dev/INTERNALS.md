@@ -101,8 +101,10 @@ Python modules call each other only through these functions. Keep signatures sta
   `GET /api/sessions/{id}/suggestions` (the web UI only: nothing runs in the background). `[]` when config
   `suggestions` is false (env `MAXXING_SUGGESTIONS=0` in tests), the session runs / is archived / has no turn yet,
   or messages or a plan wait. Cache in memory: `(turns, store.log_size(sid))` per session, 30 min, at most 200
-  sessions; a per-session lock means two tabs make one call. Context = the last 6 `user` / `assistant` texts of
-  `service.read_back` (700 chars each).
+  sessions; a per-session lock means two tabs make one call. Context (`context()`) = the title, the last 6
+  `user` / `assistant` texts of `service.read_back` (consecutive assistant blocks of a turn merged, 700 chars
+  each, the assistant's last message 1600) and the summaries of the last 8 `tool_use` (real files and commands),
+  so the proposals name what the conversation is actually doing.
 - `ask(meta, prompt) -> [str]` - `claude -p --output-format json --model gateway.small_model("haiku",
   provider_of(meta)) --tools "" --no-session-persistence --strict-mcp-config --system-prompt …`, cwd
   `<state>/claude-suggest`, env `spawn.claude_env({**meta.env, **spawn.effort_env(meta)}, "default", provider=…)`

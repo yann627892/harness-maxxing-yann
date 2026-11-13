@@ -20,16 +20,25 @@ from . import spawn, store
 
 log = logging.getLogger("maxxing.suggest")
 
-TIMEOUT_S = 15
+TIMEOUT_S = 20
 MAX = 3                                 # suggestions kept
-MAX_CHARS = 100                         # a longer answer is not a message
+MAX_CHARS = 110                         # a longer answer is not a message
 CONTEXT_CHARS = 700                     # per message sent to the model
+LAST_ASSISTANT_CHARS = 1600             # the assistant's last message usually says what was done and what is left
 CONTEXT_MESSAGES = 6                    # last user / assistant messages
+TOOLS_SHOWN = 8                         # recent tool calls, so the suggestions name real files and commands
 CACHE_TTL_S = 30 * 60
-SYSTEM_PROMPT = ("You suggest the user's next messages in a chat with a coding agent. Reply with only a JSON "
-                 "array of 2 or 3 very short follow-up requests the user could send next (8 words at most "
-                 "each), in the language of the conversation. No numbering, no explanation. "
-                 'Example: ["Run the tests", "Show me the diff"]')
+SYSTEM_PROMPT = (
+    "You write the messages a developer could send next in their chat with a coding agent. Read the end of the "
+    "conversation (the last assistant message and the recent tool calls say where the work stands) and propose "
+    "2 or 3 follow-ups that are specific to it: name the real files, commands, errors or results involved and "
+    "take the work one step further (check it, fix the cause, extend it, commit it, clean it up...). "
+    "Never generic filler that would fit any conversation, never a question about what to do next, never "
+    "something already done. Write as the user would type it: imperative, first person when natural, 12 words "
+    "at most. Use the language of the conversation (French if the user writes French). "
+    "Reply with only a JSON array of strings: no numbering, no quotes around the array, no commentary. "
+    'Example, for a French conversation about a login bug: ["Ajoute un test pour le mot de passe expiré", '
+    '"Vérifie que le message d’erreur est bien traduit"]')
 _BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s*")
 
 _slots = threading.BoundedSemaphore(2)  # at most two calls at a time
@@ -44,17 +53,31 @@ def enabled() -> bool:
     return bool(config.load_config().get("suggestions", True))
 
 
-def context(events: list[dict]) -> str:
-    """The end of the conversation, as the model reads it (user and assistant text only)."""
-    parts: list[str] = []
+def context(events: list[dict], title: str = "") -> str:
+    """The end of the conversation, as the model reads it: the title, the last user / assistant messages (the
+    assistant's last one whole, it says where the work stands) and the recent tool calls (real files, commands)."""
+    turns: list[tuple[str, str]] = []
     for e in events:
         kind = e.get("type")
         if kind not in ("user", "assistant"):
             continue
         text = " ".join(str(e.get("text") or "").split())
-        if text:
-            parts.append(f"{'User' if kind == 'user' else 'Assistant'}: {text[:CONTEXT_CHARS]}")
-    return "\n\n".join(parts[-CONTEXT_MESSAGES:])
+        if not text:
+            continue
+        if turns and kind == "assistant" and turns[-1][0] == "assistant":   # one turn's text blocks: one message
+            turns[-1] = (kind, f"{turns[-1][1]} {text}".strip())
+        else:
+            turns.append((kind, text))
+    turns = turns[-CONTEXT_MESSAGES:]
+    parts: list[str] = [f"Session: {title}"] if title else []
+    for i, (kind, text) in enumerate(turns):
+        last = i == len(turns) - 1 and kind == "assistant"
+        parts.append(f"{'User' if kind == 'user' else 'Assistant'}: {text[:LAST_ASSISTANT_CHARS if last else CONTEXT_CHARS]}")
+    tools = [str(e.get("summary") or e.get("name") or "").strip() for e in events if e.get("type") == "tool_use"]
+    tools = [x for x in tools if x][-TOOLS_SHOWN:]
+    if tools:
+        parts.append("Recent tool calls: " + "; ".join(tools))
+    return "\n\n".join(parts)
 
 
 def parse(answer: str) -> list[str]:
@@ -155,11 +178,12 @@ def suggestions(sid: str) -> list[str]:
             return hit
         from . import service
         page = service.read_back(sid, None, 60)
-        prompt = context(page.get("events") or [])
+        prompt = context(page.get("events") or [], str(m.get("title") or ""))
         if not prompt:
             return []
         with _slots:
-            out = ask(m, f"Conversation so far:\n\n{prompt}\n\n"
-                         "Give 2 or 3 short follow-up messages the user could send next, as a JSON array of strings.")
+            out = ask(m, f"{prompt}\n\n"
+                         "Write the 2 or 3 follow-up messages this user would most likely send next: concrete, "
+                         "about what the conversation is doing, as a JSON array of strings.")
         _remember(sid, key, out)
         return out

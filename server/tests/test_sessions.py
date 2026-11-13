@@ -200,6 +200,24 @@ def test_no_suggestions_without_history_or_when_switched_off(client, topic, mx):
     assert len(calls(mx)) == n                                   # off: nothing asked
 
 
+def test_suggestion_context_names_the_work(client, topic, mx):
+    from maxxing.sessions import suggest
+    ev = [
+        {"type": "user", "text": "fix the login bug"},
+        {"type": "assistant", "text": "I read auth.py."},
+        {"type": "tool_use", "name": "Read", "summary": "Read src/auth.py"},
+        {"type": "assistant", "text": "The token expires too early."},
+        {"type": "user", "text": "ok"},
+        {"type": "assistant", "text": "A" * 1000},
+    ]
+    text = suggest.context(ev, "Login bug")
+    assert text.startswith("Session: Login bug")
+    assert "Read src/auth.py" in text
+    assert "Assistant: I read auth.py. The token expires too early." in text       # blocks of one turn merged
+    assert "A" * 1000 in text                       # the assistant's last message is kept whole (says what is left)
+    assert "User: fix the login bug" in text
+
+
 def test_suggestion_answers_are_parsed_tolerantly():
     from maxxing.sessions import suggest
     assert suggest.parse('```json\n["Run the tests", "Show me the diff"]\n```') == ["Run the tests", "Show me the diff"]
