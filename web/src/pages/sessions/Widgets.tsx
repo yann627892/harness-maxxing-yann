@@ -45,7 +45,9 @@ export function ModelPicker({
   const gwName = (p?: ClaudeProvider | null): string | undefined => {
     if (!p || p === 'anthropic') return undefined
     const id = p.startsWith('gateway:') ? p.slice('gateway:'.length) : ''
-    return (id ? data?.gateways?.find((g) => g.id === id) : data?.gateway)?.name
+    const all = data?.gateways || []
+    const gw = id ? all.find((g) => g.id === id) : all.find((g) => g.default) || data?.gateway
+    return gw?.name
   }
   const sameProvider = (a?: ClaudeProvider | null, b?: ClaudeProvider | null) =>
     !a || !b || a === b ||
@@ -55,11 +57,22 @@ export function ModelPicker({
   const shown = real || next
   const differs = !!real && !!next && !matchesModel(real, next)
   const label = shown ? modelLabel(shown, models) : t('sessions.model.default')
-  const tip = differs
-    ? t('sessions.model.differs', { real: modelLabel(real, models), next: modelLabel(next, models) })
-    : real
-      ? t('sessions.model.answered', { model: modelLabel(real, models) })
-      : t('sessions.model.next', { model: next ? modelLabel(next, models) : t('sessions.model.default') })
+  // Which credential the model on screen runs on: the stored choice, else the model's own tag, else the default.
+  const sideOf = (id?: string | null, p?: ClaudeProvider | null) =>
+    p || (id ? models.find((m) => m.id === id)?.provider : undefined) || data?.default_provider
+  const side = differs ? sideOf(real) : sideOf(shown, chosenProvider)
+  const gw = gwName(side)
+  const sideTag = (p?: ClaudeProvider | null) => {
+    const s = p || data?.default_provider
+    return s === 'anthropic' ? t('sessions.model.viaAnthropic') : gwName(s) || t('sessions.model.viaGateway')
+  }
+  const tip = `${
+    differs
+      ? t('sessions.model.differs', { real: modelLabel(real, models), next: modelLabel(next, models) })
+      : real
+        ? t('sessions.model.answered', { model: modelLabel(real, models) })
+        : t('sessions.model.next', { model: next ? modelLabel(next, models) : t('sessions.model.default') })
+  }${gw ? ` · ${gw}` : ''}`
   const pick = async (model: string, provider?: '' | ClaudeProvider) => {
     const target = model || def
     const ctx = contextTokens ?? 0
@@ -92,6 +105,11 @@ export function ModelPicker({
             <Cpu className="size-3.5 shrink-0" />
             {/* narrow composer + a pending switch: only "-> next model" (the tooltip says which one answered) */}
             <span className={cn('truncate', differs && '@max-sm:hidden')}>{label}</span>
+            {gw && (
+              <span className="shrink-0 rounded bg-muted px-1 text-[10px] font-normal whitespace-nowrap text-muted-foreground max-sm:hidden">
+                {gw}
+              </span>
+            )}
             {differs && (
               <span className="shrink-0 rounded bg-warning/15 px-1 text-[10px] whitespace-nowrap text-warning">
                 → {modelLabel(next, models)}
@@ -104,6 +122,7 @@ export function ModelPicker({
       <DropdownMenuContent align="start" className="w-64">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           {real ? t('sessions.model.answered', { model: modelLabel(real, models) }) : t('sessions.model.nextTurn')}
+          {gw && ` · ${gw}`}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void pick('', '')}>
@@ -115,10 +134,8 @@ export function ModelPicker({
           <DropdownMenuItem key={`${m.id}|${m.provider ?? ''}`} onSelect={() => void pick(m.id, m.provider)}>
             <span className="flex size-4 items-center justify-center">{isChosen(m) && <Check className="!text-foreground" />}</span>
             <span className="flex-1">{m.label || modelLabel(m.id)}</span>
-            {dual && (
-              <span className="text-[10px] text-muted-foreground">
-                {m.provider === 'anthropic' ? t('sessions.model.viaAnthropic') : gwName(m.provider) || t('sessions.model.viaGateway')}
-              </span>
+            {(m.provider && m.provider !== 'anthropic' ? true : dual) && (
+              <span className="text-[10px] text-muted-foreground">{sideTag(m.provider)}</span>
             )}
             {real === m.id && <span className="text-[10px] text-muted-foreground">{t('sessions.model.lastUsed')}</span>}
           </DropdownMenuItem>
