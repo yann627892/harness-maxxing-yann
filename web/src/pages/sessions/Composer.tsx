@@ -58,12 +58,14 @@ export const Composer = React.forwardRef<ComposerHandle, {
   toolbar?: React.ReactNode
   /** One-line notice tucked on top of the composer, like the waiting messages (which take priority). */
   notice?: React.ReactNode
+  /** Follow-up messages proposed above the field; a click sends one as is. */
+  suggestions?: string[]
   placeholder?: string
   autoFocus?: boolean
   /** Lines the text grows to before it scrolls (fewer in a small grid pane, so the conversation stays visible). */
   maxRows?: number
 }>(function Composer(props, ref) {
-  const { colKey, draftKey, topicPath, running, disabledReason, queueCount = 0, queued = [], queueItems = NO_ITEMS, onClearQueue, clearingQueue, onSteer, steering, steerPending, onTakeQueue, onAsk, asking, onSend, onStop, stopping, toolbar, notice, placeholder, autoFocus, maxRows = 12 } = props
+  const { colKey, draftKey, topicPath, running, disabledReason, queueCount = 0, queued = [], queueItems = NO_ITEMS, onClearQueue, clearingQueue, onSteer, steering, steerPending, onTakeQueue, onAsk, asking, onSend, onStop, stopping, toolbar, notice, suggestions, placeholder, autoFocus, maxRows = 12 } = props
   const t = useT()
   const [text, setText] = React.useState(() => loadDraft(draftKey))
   const [quotes, setQuotes] = React.useState<string[]>(() => loadQuotes(draftKey))
@@ -310,6 +312,10 @@ export const Composer = React.forwardRef<ComposerHandle, {
   const empty = !text.trim() && ready.length === 0 && quotes.length === 0
   const blocked = disabledReason || uploading || !!failedUpload
   const reason = disabledReason || (uploading ? t('sessions.composer.uploading') : failedUpload ? t('sessions.uploadFailed', { name: failedUpload.name }) : null)
+
+  // Follow-up chips: on an empty, idle field only. A click sends one and hides the row; the next turn brings new ones.
+  const [usedSuggestions, setUsedSuggestions] = React.useState<string[] | null>(null)
+  const showSuggestions = !!suggestions?.length && suggestions !== usedSuggestions && empty && !running && !sending && !blocked
 
   // Sends are chained (never dropped, never reordered) — typing the next message while the previous
   // one is still in flight is fine.
@@ -664,6 +670,23 @@ export const Composer = React.forwardRef<ComposerHandle, {
             <div ref={attBox} data-testid="composer-attachments" className="flex max-h-[6.75rem] flex-wrap gap-1.5 overflow-y-auto overscroll-contain px-2.5 pt-2.5 [scrollbar-width:thin]">
               {atts.map((a) => (
                 <AttachmentChip key={a.lid} att={a} onRemove={() => removeAtt(a.lid)} />
+              ))}
+            </div>
+          )}
+          {showSuggestions && (
+            <div className="flex flex-wrap gap-1.5 px-2.5 pt-2.5" data-testid="composer-suggestions">
+              {suggestions!.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => {
+                    setUsedSuggestions(suggestions || null)
+                    send(s)
+                  }}
+                  className="max-w-full truncate rounded-full border bg-muted/40 px-2.5 py-1 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none pointer-coarse:py-1.5"
+                >
+                  {s}
+                </button>
               ))}
             </div>
           )}

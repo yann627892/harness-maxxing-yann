@@ -157,6 +157,14 @@ async def patch_session(sid: str, body: PatchIn):
                        favorite=body.favorite, path=body.path)
 
 
+@router.get("/sessions/{sid}/suggestions")
+async def suggestions(sid: str):
+    """Follow-up messages for the composer (small model, cached per turn); [] while a turn runs."""
+    from ..sessions import suggest
+    _found(await _call(service.get_session, sid))
+    return {"suggestions": await _call(suggest.suggestions, sid)}
+
+
 @router.post("/sessions/{sid}/ask")
 async def ask_aside(sid: str, body: AskIn):
     """Side question: Claude answers about the session without interrupting it (nothing is saved)."""

@@ -439,6 +439,10 @@ def turn(o: dict, sid: str, model: str, prompt: str, t0: float) -> int | None:
             print(json.dumps(result(sid, model, os.environ.get("FAKE_CLAUDE_TITLE", "Fake short title"), t0=t0,
                                     keep=False)))
             return 0
+        if "suggest the user's next messages" in (o.get("system_prompt") or ""):
+            print(json.dumps(result(sid, model, '["Run the tests", "Show me the diff", "Explain the change"]',
+                                    t0=t0, keep=False)))
+            return 0
         # a side question (fork, nothing saved) answers like a turn would
         print(json.dumps(result(sid, model, text if "--fork-session" in sys.argv else "ok", t0=t0,
                                 keep="--fork-session" not in sys.argv)))

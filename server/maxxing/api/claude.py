@@ -184,6 +184,7 @@ async def status():
             "protect_secrets": bool(cfg.get("protect_secrets", True)),
             "short_titles": bool(cfg.get("short_titles", True)),
             "short_titles_model": bool(cfg.get("short_titles_model", False)),
+            "suggestions": bool(cfg.get("suggestions", True)),
             "auto_update": await asyncio.to_thread(claude_update.public),
             "models": await asyncio.to_thread(service.models)}
 
@@ -259,6 +260,7 @@ class SettingsIn(BaseModel):
     protect_secrets: bool | None = None
     short_titles: bool | None = None
     short_titles_model: bool | None = None
+    suggestions: bool | None = None
     claude_auto_update: bool | None = None
 
 
@@ -297,6 +299,8 @@ async def settings(body: SettingsIn):
         changes["short_titles"] = body.short_titles
     if body.short_titles_model is not None:
         changes["short_titles_model"] = body.short_titles_model
+    if body.suggestions is not None:
+        changes["suggestions"] = body.suggestions
     if body.claude_auto_update is not None:
         changes["claude_auto_update"] = body.claude_auto_update
     if changes:

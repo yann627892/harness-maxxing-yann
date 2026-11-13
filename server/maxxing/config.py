@@ -66,6 +66,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # A new session without a title gets a short one (2-5 words) from a small model call, else from its first message.
     "short_titles": True,
     "short_titles_model": False,          # short titles by the smallest model (a call per new session) rather than locally
+    # The composer proposes 2-3 short follow-up messages above it once a session is idle (one small model call per
+    # turn at most, only when the web UI asks). Off: no call, no chips.
+    "suggestions": True,
     "claude_deny": [],
     "claude_auto_update": False,          # Claude Code updated by the server while nothing runs (claude_update.py)
     "auto_update": False,                 # Harness updates itself while nobody is on the interface (auto_update.py)

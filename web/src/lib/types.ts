@@ -77,6 +77,8 @@ export type ClaudeStatus = {
   /** New sessions get a short title (2-5 words) naming their subject. */
   short_titles?: boolean
   short_titles_model?: boolean
+  /** The composer proposes 2-3 short follow-up messages above it once a session is idle. */
+  suggestions?: boolean
   /** Claude Code updated by the server while nothing runs (`claude_auto_update`, default on). */
   auto_update?: ClaudeAutoUpdate
   models: ClaudeModel[]
@@ -101,7 +103,7 @@ export type ClaudeGateway = {
 export type ClaudeAuthBody = { kind: 'oauth_token' | 'api_key' | 'gateway'; value: string; provider?: ClaudeGatewayProvider; base_url?: string }
 export type ClaudeAuthResult = { ok: boolean; error?: string }
 export type ClaudeTestResult = { ok: boolean; model: string; ms: number; error?: string }
-export type ClaudeSettingsBody = { default_model?: string; permission_mode?: PermissionMode; claude_provider?: ClaudeProvider; auto_compact_tokens?: number; idle_compact_tokens?: number; idle_compact_after_s?: number; smart_resume_tokens?: number; protect_secrets?: boolean; short_titles?: boolean; short_titles_model?: boolean; claude_auto_update?: boolean }
+export type ClaudeSettingsBody = { default_model?: string; permission_mode?: PermissionMode; claude_provider?: ClaudeProvider; auto_compact_tokens?: number; idle_compact_tokens?: number; idle_compact_after_s?: number; smart_resume_tokens?: number; protect_secrets?: boolean; short_titles?: boolean; short_titles_model?: boolean; suggestions?: boolean; claude_auto_update?: boolean }
 
 /* ---------------------------------------------------------------- Workspace */
 export type Topic = {
@@ -412,6 +414,8 @@ export type PatchSessionBody = { title?: string; model?: string; /** "" = back t
 export type SendMessageBody = { text: string; attachments?: string[]; hud?: boolean; /** Absolute path of a voice message sent directly: the server transcribes it, then sends it. */ voice?: string; /** This page's id for the message, found again in `client_ids` of its queue item and its log event (a reload mid-send checks it). */ client_id?: string }
 export type SendMessageResult = { queued: boolean; session: Session }
 export type SessionSearchHit = { id: string; title: string; path: string; snippet: string; at: number }
+/** Follow-up messages the server proposes for an idle session (composer chips). */
+export type SessionSuggestions = { suggestions: string[] }
 export type SearchKind = 'session' | 'file' | 'memory' | 'task' | 'group'
 /** Full-text hit: `snippet` marks the matched words with \u0002 … \u0003. */
 export type SearchHit = { kind: SearchKind; id: string; path: string; title: string; snippet: string; at: number | null; score: number }

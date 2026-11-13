@@ -139,6 +139,12 @@ on its first message. A title you typed, a Telegram thread you named, or a renam
   Harness itself says so in front of its text.
 - **Stop** interrupts the running turn.
 
+**Suggested replies.** Once a session is idle, two or three short messages you could send next appear above
+the field (for example *Run the tests*, *Show me the diff*). One click sends it at once, as if you had typed
+it. The smallest model writes them from the end of the conversation: one quick call per turn at most, only
+when the session is open and idle, counted in your Claude plan. Turn them off in Settings -> Claude,
+**Follow-up suggestions**.
+
 **Steer while Claude works.** A message sent during a turn waits in the queue above the composer.
 Click **Steer** (in the waiting-messages card) to use it immediately: the current turn is interrupted, Claude keeps everything
 it has done so far (same conversation) and continues the task taking your new message into account. Commands and

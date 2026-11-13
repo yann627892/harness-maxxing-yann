@@ -96,6 +96,18 @@ Python modules call each other only through these functions. Keep signatures sta
 - `provisional(message) -> str` - first 60 chars (+ "…"): the instant title, and the title when the switch is off.
 - `pending(sid) -> bool` - a short title is being made (between `schedule` and the end of its thread) or meta
   `title_auto` is set: the Telegram sync waits for it (60 s at most) before creating the session's thread.
+## maxxing.sessions.suggest  (owner: core)
+- `suggestions(sid) -> [str]` - the follow-up chips of an idle session, asked by
+  `GET /api/sessions/{id}/suggestions` (the web UI only: nothing runs in the background). `[]` when config
+  `suggestions` is false (env `MAXXING_SUGGESTIONS=0` in tests), the session runs / is archived / has no turn yet,
+  or messages or a plan wait. Cache in memory: `(turns, store.log_size(sid))` per session, 30 min, at most 200
+  sessions; a per-session lock means two tabs make one call. Context = the last 6 `user` / `assistant` texts of
+  `service.read_back` (700 chars each).
+- `ask(meta, prompt) -> [str]` - `claude -p --output-format json --model gateway.small_model("haiku",
+  provider_of(meta)) --tools "" --no-session-persistence --strict-mcp-config --system-prompt …`, cwd
+  `<state>/claude-suggest`, env `spawn.claude_env({**meta.env, **spawn.effort_env(meta)}, "default", provider=…)`
+  (the session's own side and effort), timeout 15 s, at most two calls at a time; answer through `parse()`
+  (JSON array, else one line per item; bullets/numbers and quotes stripped, 3 at most, 100 chars each).
 ## maxxing.claude_auth  (stdlib only, also used by the runner)
 - `record(ok, error=None, source="turn"|"test"|"check", provider=None)` - outcome of a real call on that side;
   `detect(text) -> str|None` finds a sign-in error; `status() -> {ok, method, detail, checked_at, error}` (GET

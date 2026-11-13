@@ -169,6 +169,45 @@ def test_an_effort_level_is_checked(client, topic):
     assert client.patch(f"/api/sessions/{s['id']}", json={"effort": "AUTO"}).json()["effort"] == ""
 
 
+def test_follow_up_suggestions_use_the_small_model_once_per_turn(client, topic, mx):
+    s = client.post("/api/sessions", json={"path": topic, "message": "find the zebra"}).json()
+    wait_idle(client, s["id"])
+    n = len(calls(mx))
+    r = client.get(f"/api/sessions/{s['id']}/suggestions")
+    assert r.status_code == 200
+    assert r.json()["suggestions"] == ["Run the tests", "Show me the diff", "Explain the change"]
+    made = calls(mx)[n:]
+    assert len(made) == 1
+    assert made[0]["argv"][made[0]["argv"].index("--model") + 1] == "haiku"     # the small model
+    assert made[0]["argv"][made[0]["argv"].index("--tools") + 1] == ""          # no tools
+    # Cached for that turn: a second ask (another tab, a reload) makes no call.
+    assert client.get(f"/api/sessions/{s['id']}/suggestions").json()["suggestions"] == r.json()["suggestions"]
+    assert len(calls(mx)) == n + 1
+
+
+def test_no_suggestions_without_history_or_when_switched_off(client, topic, mx):
+    from maxxing import config
+    s = client.post("/api/sessions", json={"path": topic}).json()
+    assert s["turns"] == 0
+    n = len(calls(mx))
+    assert client.get(f"/api/sessions/{s['id']}/suggestions").json()["suggestions"] == []
+    assert len(calls(mx)) == n                                   # no model call without history
+    config.update_config(suggestions=False)
+    done = client.post("/api/sessions", json={"path": topic, "message": "hello"}).json()
+    wait_idle(client, done["id"])
+    n = len(calls(mx))
+    assert client.get(f"/api/sessions/{done['id']}/suggestions").json()["suggestions"] == []
+    assert len(calls(mx)) == n                                   # off: nothing asked
+
+
+def test_suggestion_answers_are_parsed_tolerantly():
+    from maxxing.sessions import suggest
+    assert suggest.parse('```json\n["Run the tests", "Show me the diff"]\n```') == ["Run the tests", "Show me the diff"]
+    assert suggest.parse("1. Run the tests\n2. Show me the diff\n") == ["Run the tests", "Show me the diff"]
+    assert suggest.parse('["Same", "same", "", "x"]') == ["Same"]      # duplicate, empty and too short dropped
+    assert suggest.parse("") == []
+
+
 def test_search_patch_delete(client, topic):
     s = client.post("/api/sessions", json={"path": topic, "message": "find the zebra NOTOOL"}).json()
     wait_idle(client, s["id"])

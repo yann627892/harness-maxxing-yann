@@ -10,6 +10,7 @@ import type {
   Session,
   SessionEventsBackPage,
   SessionSearchHit,
+  SessionSuggestions,
   UploadResult,
 } from '../types'
 import { qk, unlessBus } from './keys'
@@ -44,6 +45,18 @@ export function useSessionSearch(q: string) {
     queryFn: ({ signal }) => api.get<SessionSearchHit[]>('/api/sessions/search', { q }, { signal }),
     enabled: q.trim().length >= 2,
     staleTime: 10_000,
+  })
+}
+
+/** Follow-up chips above the composer of an idle session: the server makes them once per turn (cached). */
+export function useSessionSuggestions(id: string | null | undefined, turns: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['suggestions', id, turns],
+    queryFn: () => api.get<SessionSuggestions>(`/api/sessions/${seg(id!)}/suggestions`),
+    enabled: !!id && enabled && turns > 0,
+    staleTime: Infinity,
+    gcTime: 30 * 60_000,
+    retry: false,
   })
 }
 

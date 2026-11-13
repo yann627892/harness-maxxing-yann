@@ -50,6 +50,7 @@ import {
   usePatchSession,
   useSendMessage,
   useSessionSeeded,
+  useSessionSuggestions,
   useSettings,
   useSteerSession,
   useTakeQueue,
@@ -440,6 +441,12 @@ export function SessionColumn({ col, sid, variant, index, count, place, agentRun
   const notFound = (isError && isApiError(error) && error.status === 404) || deleted
   const running = session?.state === 'running'
   const path = session?.path ?? ''
+  // Follow-up chips: idle, with history, nothing waiting and not an agent's own run.
+  const { data: suggested } = useSessionSuggestions(
+    sid,
+    session?.turns ?? 0,
+    !!session && !agentRun && !running && !session.queue && !session.plan_ready,
+  )
   // Message actions of the thread: Edit (a stopped message back into this composer), New session from a message
   // (a new session of the same topic, its composer filled; the URL opens it, on a phone too).
   const onEdit = React.useCallback((seed: Seed) => composer.current?.bringBack(seed), [])
@@ -811,6 +818,7 @@ export function SessionColumn({ col, sid, variant, index, count, place, agentRun
             maxRows={place && place.row !== 'full' ? 4 : 12}
             draftKey={sid}
             placeholder={session?.plan_mode ? t(session.plan_ready ? 'plan.placeholderAdjust' : 'plan.placeholder') : undefined}
+            suggestions={suggested?.suggestions}
             notice={session?.plan_ready && !running ? <PlanNotice session={session} onAdjust={() => composer.current?.focus()} /> : null}
             topicPath={path}
             running={running}

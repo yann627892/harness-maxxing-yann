@@ -873,6 +873,8 @@ export const en = {
   'cdef.shortTitlesHint': 'A new session is named in a few words from its first message (greetings and "can you…" removed). Off: the title is the start of the message. Renaming a session always wins.',
   'cdef.shortTitlesModel': 'Titles written by Claude',
   'cdef.shortTitlesModelHint': 'The smallest model names the subject (better titles). One quick call per new session, counted in your Claude plan.',
+  'cdef.suggestions': 'Follow-up suggestions',
+  'cdef.suggestionsHint': 'When a session is idle, 2-3 short messages you could send next appear above the field: one click sends one. The smallest model writes them, once per turn at most, counted in your Claude plan.',
   'cdef.autoUpdate': 'Update Claude Code automatically',
   'cdef.autoUpdateHint': 'Off by default. On: when a newer stable release of Claude Code is out (one already used for some days, not the very latest), the server installs it once nothing has run for 10 minutes (no turn, no queued message, no cron job), and goes back to the previous one if it does not start. Checked every 6 hours; the result shows in the notifications.',
   'cdef.autoUpdateLast': 'Last update: {from} → {to}, {date}',

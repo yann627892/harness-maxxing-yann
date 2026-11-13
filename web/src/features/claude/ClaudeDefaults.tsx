@@ -104,6 +104,9 @@ export function ClaudeDefaults() {
           <Switch id="mx-short-titles-model" checked={!!s.short_titles_model} onCheckedChange={(v) => save.mutate({ short_titles_model: v })} />
         </SettingRow>
       )}
+      <SettingRow label={t('cdef.suggestions')} description={t('cdef.suggestionsHint')} htmlFor="mx-suggestions">
+        <Switch id="mx-suggestions" checked={s.suggestions ?? true} onCheckedChange={(v) => save.mutate({ suggestions: v })} />
+      </SettingRow>
       <div data-tour="claude-auto-update" className="rounded-md">
         <SettingRow
           label={t('cdef.autoUpdate')}
