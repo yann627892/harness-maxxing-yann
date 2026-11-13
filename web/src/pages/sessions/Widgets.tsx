@@ -127,9 +127,9 @@ export function ModelPicker({
                 {gw}
               </span>
             )}
-            {effort && (
-              <span className="shrink-0 text-[10px] font-normal whitespace-nowrap text-muted-foreground max-sm:hidden">
-                {effortLabel(effort)}
+            {onEffort && (
+              <span className="shrink-0 rounded bg-muted px-1 text-[10px] font-normal whitespace-nowrap text-muted-foreground">
+                {effortLabel(effort || '')}
               </span>
             )}
             {differs && (
@@ -152,16 +152,6 @@ export function ModelPicker({
           <span className="flex-1">{t('sessions.model.default')}</span>
           {def && <span className="text-xs text-muted-foreground">{modelLabel(def, models)}</span>}
         </DropdownMenuItem>
-        {options.map((m) => (
-          <DropdownMenuItem key={`${m.id}|${m.provider ?? ''}`} onSelect={() => void pick(m.id, m.provider)}>
-            <span className="flex size-4 items-center justify-center">{isChosen(m) && <Check className="!text-foreground" />}</span>
-            <span className="flex-1">{m.label || modelLabel(m.id)}</span>
-            {(m.provider && m.provider !== 'anthropic' ? true : dual) && (
-              <span className="text-[10px] text-muted-foreground">{sideTag(m.provider)}</span>
-            )}
-            {real === m.id && <span className="text-[10px] text-muted-foreground">{t('sessions.model.lastUsed')}</span>}
-          </DropdownMenuItem>
-        ))}
         {onEffort && (
           <>
             <DropdownMenuSeparator />
@@ -181,8 +171,19 @@ export function ModelPicker({
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+            <DropdownMenuSeparator />
           </>
         )}
+        {options.map((m) => (
+          <DropdownMenuItem key={`${m.id}|${m.provider ?? ''}`} onSelect={() => void pick(m.id, m.provider)}>
+            <span className="flex size-4 items-center justify-center">{isChosen(m) && <Check className="!text-foreground" />}</span>
+            <span className="flex-1">{m.label || modelLabel(m.id)}</span>
+            {(m.provider && m.provider !== 'anthropic' ? true : dual) && (
+              <span className="text-[10px] text-muted-foreground">{sideTag(m.provider)}</span>
+            )}
+            {real === m.id && <span className="text-[10px] text-muted-foreground">{t('sessions.model.lastUsed')}</span>}
+          </DropdownMenuItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   )
